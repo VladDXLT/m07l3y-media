@@ -1,0 +1,10 @@
+{
+  "name": "m07l3y-media",
+  "private": true,
+  "version": "1.0.0",
+  "description": "M07L3Y Media website (static HTML/CSS/JS) with a local visual editor",
+  "type": "module",
+  "scripts": {
+    "edit": "node editor/server.mjs --open"
+  }
+}
