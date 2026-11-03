@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://vladdxlt.github.io/m07l3y-media/sitemap.xml
+Sitemap: https://mo7leymedia.com/sitemap.xml

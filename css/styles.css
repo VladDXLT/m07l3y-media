@@ -438,6 +438,7 @@ section{position:relative}
 .t-reel .frame{aspect-ratio:9/16;border-radius:22px;transform:rotate(-2.4deg);border-color:var(--pink);max-width:320px}
 .t-slant{grid-column:span 8}
 .t-slant .frame{aspect-ratio:16/8;clip-path:polygon(4% 0,100% 0,96% 100%,0 100%);border:0}
+.t-4{grid-column:span 4}
 .tile:hover .frame{transform:rotate(0)}
 .tile .hud{inset:12px 16px}
 .tile.is-hidden{display:none}
@@ -679,6 +680,21 @@ footer{padding-block:clamp(64px,8vw,110px) 40px;border-top:1px solid var(--line)
 .portrait .slot-media{position:absolute}
 .no-hud .hud{display:none}
 
+/* ---------- touch screens: hover effects play as things scroll through the middle of the screen (class added by main.js) ---------- */
+.collage.in-focus .f-air{transform:rotate(-4deg) translateY(-6px)}
+.collage.in-focus .f-reel{transform:rotate(9deg) translateX(4px)}
+.collage.in-focus .f-sea{transform:rotate(-10deg) scale(1.03)}
+.zone.in-focus{transform:rotate(0) translate(-2px,-2px)}
+.zone-card.in-focus,.svc.in-focus{transform:rotate(0) translateY(-4px)}
+.use.in-focus{transform:rotate(0) translateY(-3px)}
+.make-item.in-focus .frame,.tile.in-focus .frame{transform:rotate(0)}
+.join.in-focus{border-color:var(--teal);transform:rotate(0)}
+.clients span.in-focus{color:var(--fg)}
+.btn-skew.in-focus{transform:skewX(-10deg) translate(-3px,-3px);box-shadow:10px 10px 0 var(--purple)}
+.btn-pill.in-focus{background:var(--teal);color:var(--ink)}
+.ind{transition:transform .4s var(--ease)}
+.ind.in-focus{transform:translateY(-3px) rotate(0)}
+
 /* ---------- large screens: scale the whole layout up so it fills big monitors ---------- */
 @media (min-width:1700px){ html{zoom:1.12} }
 @media (min-width:2000px){ html{zoom:1.3} }
@@ -722,7 +738,10 @@ footer{padding-block:clamp(64px,8vw,110px) 40px;border-top:1px solid var(--line)
   .stat:nth-child(n+3){border-top:1px solid var(--line)}
   .grid-work{grid-template-columns:1fr 1fr}
   .grid-work .tile{grid-column:span 2}
-  .grid-work .t-reel,.grid-work .t-circle{grid-column:span 1}
+  .grid-work{grid-auto-flow:row dense}
+  .grid-work .t-reel,.grid-work .t-tall,.grid-work .t-4{grid-column:span 1}
+  .grid-work .t-circle{grid-column:span 2}
+  .grid-work .t-circle .frame{max-width:420px;margin-inline:auto}
   .t-wide2{margin-top:0}
   .team-grid{grid-template-columns:1fr 1fr}
   .member.lead{grid-column:span 2;grid-template-columns:1fr}
@@ -763,7 +782,7 @@ footer{padding-block:clamp(64px,8vw,110px) 40px;border-top:1px solid var(--line)
   .why{clip-path:polygon(0 24px,100% 0,100% calc(100% - 24px),0 100%)}
   .field-row{grid-template-columns:1fr}
   .grid-work{grid-template-columns:1fr}
-  .grid-work .tile,.grid-work .t-reel,.grid-work .t-circle{grid-column:span 1}
+  .grid-work .tile,.grid-work .t-reel,.grid-work .t-circle,.grid-work .t-tall,.grid-work .t-4{grid-column:span 1}
   .t-reel .frame{max-width:260px}
   .team-grid{grid-template-columns:1fr}
   .member.lead{grid-column:span 1}

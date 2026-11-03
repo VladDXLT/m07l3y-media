@@ -62,7 +62,7 @@ To change the destination, edit `data-email` and `data-endpoint` on the `<form i
   `<video src="assets/video/clip.mp4" autoplay muted loop playsinline style="width:100%;height:100%;object-fit:cover"></video>`
   (keep clips short and compressed, under ~10 MB each, or host on Vimeo/Mux).
 - **Social links:** uncomment the Instagram / TikTok lines in the footer of each page and add your handles.
-- **Custom domain:** add a `CNAME` file with your domain, then update the URLs in `sitemap.xml`, `robots.txt` and the `canonical` / `og:url` tags.
+- **Custom domain:** the site is served at https://mo7leymedia.com (see the `CNAME` file). DNS is at Namecheap: four A records for `@` pointing to GitHub Pages and a `www` CNAME to `vladdxlt.github.io`.
 
 ## Run locally
 

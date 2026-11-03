@@ -127,6 +127,15 @@
     }
   }
 
+  /* ---- Touch screens: play the hover effects as things scroll through the middle of the screen ---- */
+  if (!reduce && window.matchMedia && matchMedia('(hover: none)').matches && 'IntersectionObserver' in window) {
+    var hio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { en.target.classList.toggle('in-focus', en.isIntersecting); });
+    }, { rootMargin: '-38% 0px -38% 0px' });
+    document.querySelectorAll('.collage, .zone, .zone-card, .svc, .use, .make-item, .tile, .join, .btn-skew, .btn-pill, .clients span, .ind')
+      .forEach(function (el) { hio.observe(el); });
+  }
+
   /* ---- Work page filters ---- */
   var filters = document.querySelector('.filters');
   if (filters) {
