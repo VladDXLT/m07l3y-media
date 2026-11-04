@@ -18,7 +18,10 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { exec } from 'node:child_process';
+import { exec, spawn } from 'node:child_process';
+import os from 'node:os';
+import https from 'node:https';
+import http2 from 'node:http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -36,6 +39,126 @@ const TYPES = {
   '.md': 'text/plain; charset=utf-8',
 };
 const MEDIA_EXT = /\.(png|jpe?g|gif|webp|avif|svg|mp4|mov|webm|m4v)$/i;
+const HIDDEN_MEDIA = /(-stats\.png|\.poster\.jpg)$/i;   // helper files, not shown as their own items
+
+// Find yt-dlp / ffmpeg wherever they were installed (Homebrew, conda, pip --user)
+const HOME = os.homedir();
+process.env.PATH = [process.env.PATH || '', path.join(HOME, '.homebrew/bin'), '/opt/homebrew/bin', '/usr/local/bin',
+  path.join(HOME, 'anaconda3/bin'), path.join(HOME, 'miniconda3/bin'), '/opt/anaconda3/bin', '/opt/miniconda3/bin',
+  path.join(HOME, '.local/bin'), path.join(HOME, 'Library/Python/3.12/bin'), path.join(HOME, 'Library/Python/3.11/bin')].join(':');
+function which(cmd) {
+  for (const dir of process.env.PATH.split(':')) {
+    if (!dir) continue;
+    const p = path.join(dir, cmd);
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch (e) {}
+  }
+  return null;
+}
+function run(cmd, args, timeoutMs = 15 * 60 * 1000) {
+  return new Promise(resolve => {
+    const child = spawn(cmd, args, { env: process.env });
+    let stdout = '', stderr = '';
+    const timer = setTimeout(() => { child.kill('SIGKILL'); stderr += '\nTimed out'; }, timeoutMs);
+    child.stdout.on('data', d => { stdout += d; });
+    child.stderr.on('data', d => { stderr += d; });
+    child.on('error', err => { clearTimeout(timer); resolve({ code: -1, stdout, stderr: err.message }); });
+    child.on('close', code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
+}
+function downloadTo(url, dest, redirects = 5) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https:') ? https : http2;
+    lib.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+        res.resume(); return resolve(downloadTo(new URL(res.headers.location, url).href, dest, redirects - 1));
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error('Download failed (' + res.statusCode + ')')); }
+      const out = fs.createWriteStream(dest);
+      res.pipe(out); out.on('finish', () => resolve(dest)); out.on('error', reject);
+    }).on('error', reject);
+  });
+}
+const sidecarPath = base => path.join(UPLOADS, base + '.json');
+async function readSidecar(base) { try { return JSON.parse(await fsp.readFile(sidecarPath(base), 'utf8')); } catch (e) { return null; } }
+async function writeSidecar(base, data) { await fsp.writeFile(sidecarPath(base), JSON.stringify(data, null, 2)); }
+function statsFrom(meta) {
+  const n = v => (typeof v === 'number' && isFinite(v) ? v : null);
+  return { views: n(meta.view_count) ?? n(meta.play_count), likes: n(meta.like_count), comments: n(meta.comment_count), shares: n(meta.repost_count) ?? n(meta.share_count) };
+}
+function platformOf(meta, url) {
+  const k = (meta.extractor_key || meta.extractor || '').toLowerCase();
+  if (k.includes('instagram') || /instagram\.com/.test(url)) return 'Instagram';
+  if (k.includes('tiktok') || /tiktok\.com/.test(url)) return 'TikTok';
+  if (k.includes('youtube') || /youtu\.?be/.test(url)) return 'YouTube';
+  if (k.includes('facebook') || /facebook\.com|fb\.watch/.test(url)) return 'Facebook';
+  if (k.includes('vimeo')) return 'Vimeo';
+  return meta.extractor_key || 'Link';
+}
+// Ask yt-dlp for the post's details. Tries without login first, then with your browser's login if needed.
+async function fetchMeta(url, cookies) {
+  const ytdlp = which('yt-dlp');
+  if (!ytdlp) throw new Error('yt-dlp is not installed. In Terminal run: brew install yt-dlp ffmpeg');
+  const attempts = cookies && cookies !== 'auto' ? [cookies] : ['none', 'chrome', 'safari'];
+  let lastErr = '';
+  for (const c of attempts) {
+    const args = ['-J', '--no-playlist', '--no-warnings', ...(c !== 'none' ? ['--cookies-from-browser', c] : []), url];
+    const r = await run(ytdlp, args, 3 * 60 * 1000);
+    if (r.code === 0 && r.stdout.trim()) {
+      let meta = JSON.parse(r.stdout);
+      if (meta._type === 'playlist' && Array.isArray(meta.entries) && meta.entries.length) {
+        meta = Object.assign({}, meta.entries[0], { like_count: meta.like_count ?? meta.entries[0].like_count, comment_count: meta.comment_count ?? meta.entries[0].comment_count });
+      }
+      return { meta, cookies: c };
+    }
+    lastErr = (r.stderr || '').split('\n').filter(l => /ERROR/.test(l)).pop() || r.stderr.slice(-300);
+  }
+  throw new Error('Could not read that link. ' + lastErr.replace(/^ERROR:\s*/, ''));
+}
+async function importLink(url, cookies) {
+  const ytdlp = which('yt-dlp'), ffmpeg = which('ffmpeg');
+  const { meta, cookies: usedCookies } = await fetchMeta(url, cookies);
+  const platform = platformOf(meta, url);
+  await fsp.mkdir(UPLOADS, { recursive: true });
+  const who = (meta.uploader_id || meta.channel || meta.uploader || '').toString();
+  const baseName = path.basename(uniqueName(UPLOADS, `${platform}-${who}-${meta.id || Date.now()}.tmp`), '.tmp');
+  const hasVideo = Array.isArray(meta.formats) ? meta.formats.some(f => f.vcodec && f.vcodec !== 'none') : /^(mp4|mov|webm|m4v)$/.test(meta.ext || '');
+  const hasAudio = Array.isArray(meta.formats) ? meta.formats.some(f => f.acodec && f.acodec !== 'none') : true;
+  let file, poster = null;
+  const thumbs = (meta.thumbnails || []).filter(t => t.url).sort((a, b) => (a.width || 0) * (a.height || 0) - (b.width || 0) * (b.height || 0));
+  const bestThumb = (thumbs.length ? thumbs[thumbs.length - 1].url : meta.thumbnail) || null;
+  if (hasVideo) {
+    const args = ['--no-playlist', '--no-warnings', '-f', ffmpeg ? 'bv*+ba/b' : 'b', '-S', 'vcodec:h264,res,acodec:aac',
+      ...(ffmpeg ? ['--merge-output-format', 'mp4'] : []),
+      ...(usedCookies !== 'none' ? ['--cookies-from-browser', usedCookies] : []),
+      '-o', path.join(UPLOADS, baseName + '.%(ext)s'), '--print', 'after_move:filepath', url];
+    console.log(`  import  ${platform} video ${url}`);
+    const r = await run(ytdlp, args);
+    const printed = r.stdout.trim().split('\n').filter(Boolean).pop();
+    if (r.code !== 0 || !printed || !fs.existsSync(printed)) throw new Error('Download failed. ' + (r.stderr.split('\n').filter(l => /ERROR/.test(l)).pop() || ''));
+    file = printed;
+    // GitHub rejects files over 100 MB: shrink big videos (keeps 1080p and audio)
+    if (ffmpeg && fs.statSync(file).size > 90 * 1048576) {
+      const small = path.join(UPLOADS, baseName + '-web.mp4');
+      const t = await run(ffmpeg, ['-y', '-i', file, '-vf', "scale='min(1080,iw)':-2", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', small]);
+      if (t.code === 0 && fs.existsSync(small)) { await fsp.unlink(file); await fsp.rename(small, path.join(UPLOADS, baseName + '.mp4')); file = path.join(UPLOADS, baseName + '.mp4'); }
+    }
+    if (bestThumb) { try { await downloadTo(bestThumb, path.join(UPLOADS, baseName + '.poster.jpg')); poster = 'assets/uploads/' + baseName + '.poster.jpg'; } catch (e) {} }
+  } else {
+    if (!bestThumb) throw new Error('No video or image found at that link.');
+    console.log(`  import  ${platform} image ${url}`);
+    file = path.join(UPLOADS, baseName + '.jpg');
+    await downloadTo(bestThumb, file);
+  }
+  const item = {
+    src: 'assets/uploads/' + path.basename(file), poster, video: hasVideo, audio: hasVideo && hasAudio,
+    link: meta.webpage_url || url, platform, uploader: meta.uploader || meta.channel || who || '', title: (meta.title || meta.description || '').slice(0, 140),
+    stats: statsFrom(meta), statsPng: null, fetchedAt: new Date().toISOString(), cookies: usedCookies,
+  };
+  await writeSidecar(baseName, item);
+  const size = fs.statSync(file).size;
+  console.log(`  saved   ${item.src} (${(size / 1048576).toFixed(1)} MB)`);
+  return Object.assign({ name: path.basename(file), base: baseName, size }, item);
+}
 
 const INJECT = '\n<link rel="stylesheet" href="/__editor/editor.css" data-m07-editor>\n' +
                '<script src="/__editor/editor.js" defer data-m07-editor></script>\n';
@@ -105,12 +228,46 @@ async function handleEditorApi(req, res, url) {
     console.log(`  saved   ${path.basename(file)}`);
     return json(res, 200, { ok: true, page: path.basename(file), savedAt: Date.now() });
   }
+  if (req.method === 'GET' && route === 'tools') {
+    return json(res, 200, { ytdlp: which('yt-dlp'), ffmpeg: which('ffmpeg') });
+  }
+  if (req.method === 'POST' && route === 'import') {
+    const { url: link, cookies } = JSON.parse((await readBody(req)).toString('utf8'));
+    if (!/^https?:\/\/\S+$/i.test(String(link || '').trim())) return json(res, 400, { error: 'Paste a full link that starts with https://' });
+    try { return json(res, 200, { ok: true, item: await importLink(String(link).trim(), cookies) }); }
+    catch (err) { console.error('  import failed:', err.message); return json(res, 400, { error: err.message }); }
+  }
+  if (req.method === 'POST' && route === 'refresh') {
+    const { base } = JSON.parse((await readBody(req)).toString('utf8'));
+    const safe = path.basename(String(base || ''));
+    const item = await readSidecar(safe);
+    if (!item) return json(res, 404, { error: 'No link saved for that file.' });
+    try {
+      const { meta } = await fetchMeta(item.link, item.cookies || 'auto');
+      item.stats = statsFrom(meta); item.fetchedAt = new Date().toISOString();
+      await writeSidecar(safe, item);
+      return json(res, 200, { ok: true, item: Object.assign({ base: safe }, item) });
+    } catch (err) { return json(res, 400, { error: err.message }); }
+  }
+  if (req.method === 'POST' && route === 'stats-png') {
+    const safe = path.basename(String(url.searchParams.get('base') || ''));
+    const item = await readSidecar(safe);
+    if (!item) return json(res, 404, { error: 'No link saved for that file.' });
+    const png = await readBody(req, 5 * 1024 * 1024);
+    if (png.slice(1, 4).toString() !== 'PNG') return json(res, 400, { error: 'Not a PNG' });
+    await fsp.writeFile(path.join(UPLOADS, safe + '-stats.png'), png);
+    item.statsPng = 'assets/uploads/' + safe + '-stats.png';
+    await writeSidecar(safe, item);
+    return json(res, 200, { ok: true, statsPng: item.statsPng });
+  }
   if (req.method === 'GET' && route === 'media') {
     await fsp.mkdir(UPLOADS, { recursive: true });
-    const files = (await fsp.readdir(UPLOADS)).filter(f => MEDIA_EXT.test(f));
+    const files = (await fsp.readdir(UPLOADS)).filter(f => MEDIA_EXT.test(f) && !HIDDEN_MEDIA.test(f));
     const list = await Promise.all(files.map(async f => {
       const st = await fsp.stat(path.join(UPLOADS, f));
-      return { name: f, src: 'assets/uploads/' + f, size: st.size, mtime: st.mtimeMs, video: /\.(mp4|mov|webm|m4v)$/i.test(f) };
+      const base = path.basename(f, path.extname(f));
+      const meta = await readSidecar(base);
+      return Object.assign({ name: f, src: 'assets/uploads/' + f, size: st.size, mtime: st.mtimeMs, video: /\.(mp4|mov|webm|m4v)$/i.test(f) }, meta ? { base, meta } : {});
     }));
     list.sort((a, b) => b.mtime - a.mtime);
     return json(res, 200, { files: list });

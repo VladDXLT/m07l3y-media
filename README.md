@@ -34,6 +34,7 @@ Shared files: `css/styles.css` (all styles + brand tokens), `js/main.js` (menu, 
 3. Click any text to edit it. Select words to format just those words, or click into a box and use the toolbar on the whole box:
    bold, italic, underline, strikethrough, size (A− / A+), alignment, box width (or drag the pink handle), brand colors, Clear.
 4. Images and videos: drag a file from Finder onto any frame or photo spot. Or open **Media**, upload files, then drag them onto the page (or click a frame, then click a file). Hover a frame for Replace / HUD on-off / Remove.
+   **From a link:** open **Media**, paste an Instagram, TikTok or YouTube link and click **Download**. It saves the highest quality version with sound, keeps the link, and makes a stat overlay (likes, comments, shares, views). Tick **Include stat overlay** before dragging it onto a frame, or use **Stats** on a placed frame to turn it on/off. Visitors who click the video go to the original post. **Refresh stats** updates the numbers later. Needs `brew install yt-dlp ffmpeg` once; Instagram may ask to use your Chrome login (allow the Keychain prompt). Only use posts you or your clients own.
 5. Press **Cmd+S** (or Save). Changes are written straight into the .html files. Uploads go to `assets/uploads/`. Backups of every save are kept in `.editor-backups/` (not uploaded to GitHub).
 6. Publish: open GitHub Desktop, write a short summary, click **Commit to main**, then **Push origin**.
 

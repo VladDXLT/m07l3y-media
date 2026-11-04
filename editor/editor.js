@@ -134,11 +134,19 @@
     '<div class="m07-drawer-head"><b>Your media</b>' +
     '<span>Drag onto any frame or photo spot, or click a frame and then a file.</span>' +
     '<label class="m07-upload">Upload<input type="file" accept="image/*,video/*" multiple hidden></label></div>' +
+    '<form class="m07-import" autocomplete="off">' +
+      '<input type="url" name="link" placeholder="Paste an Instagram, TikTok or YouTube link" required>' +
+      '<select name="cookies" title="Instagram usually needs your login. Auto tries without it first, then your Chrome login.">' +
+        '<option value="auto">Login: auto</option><option value="none">No login</option><option value="chrome">Use Chrome login</option><option value="safari">Use Safari login</option>' +
+      '</select>' +
+      '<button type="submit">Download</button>' +
+    '</form>' +
+    '<p class="m07-tools" hidden></p>' +
     '<div class="m07-grid"><p class="m07-empty">No uploads yet. Click Upload or drop files here.</p></div>';
 
   var handle = h('div', { class: 'm07-ui m07-handle', hidden: '', title: 'Drag to resize this text box' }, '<span></span>');
   var slotBar = h('div', { class: 'm07-ui m07-slotbar', hidden: '' },
-    '<button type="button" data-slot="replace">Replace</button><button type="button" data-slot="hud">HUD</button><button type="button" data-slot="remove">Remove</button>');
+    '<button type="button" data-slot="replace">Replace</button><button type="button" data-slot="stats">Stats</button><button type="button" data-slot="hud">HUD</button><button type="button" data-slot="remove">Remove</button>');
   var pill = h('button', { class: 'm07-ui m07-pill', type: 'button', hidden: '' }, '<i class="m07-dot"></i>Editor');
   var picker = h('input', { type: 'file', accept: 'image/*,video/*', hidden: '' });
   picker.className = 'm07-ui';
@@ -248,7 +256,7 @@
     if (link && !link.closest('.logo, .foot-logo') && !(e.metaKey || e.ctrlKey)) e.preventDefault();
     if (e.target.closest('summary')) e.preventDefault();
   }, true);
-  document.addEventListener('submit', function (e) { if (editing) { e.preventDefault(); e.stopImmediatePropagation(); status('Forms are off while editing.'); } }, true);
+  document.addEventListener('submit', function (e) { if (editing && !e.target.closest('.m07-ui')) { e.preventDefault(); e.stopImmediatePropagation(); status('Forms are off while editing.'); } }, true);
 
   document.addEventListener('input', function (e) {
     if (active && active.contains(e.target)) markDirty(active, 'html');
@@ -433,14 +441,43 @@
     selectedSlot = slot;
     if (slot) { slot.classList.add('m07-slot-selected'); showSlotBar(slot); status('Frame selected. Drop a file on it, or pick one in Media.'); }
   }
+  var library = {};   // src -> media item (with .meta for files imported from a link)
+  var withStats = {}; // src -> true when "Include stat overlay" is ticked
+  function statsAlt(meta) {
+    var st = meta.stats || {}, parts = [];
+    if (st.views != null) parts.push(fmtCount(st.views) + ' views');
+    if (st.likes != null) parts.push(fmtCount(st.likes) + ' likes');
+    if (st.comments != null) parts.push(fmtCount(st.comments) + ' comments');
+    if (st.shares != null) parts.push(fmtCount(st.shares) + ' shares');
+    return parts.join(', ') + (meta.platform ? ' on ' + meta.platform : '');
+  }
+  var PLAY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L19.5 12 7 4.5z" fill="currentColor"/></svg>';
+  function removeStats(slot) { slot.querySelectorAll('.stat-overlay, .views-badge').forEach(function (n) { n.remove(); }); }
+  function addStats(slot, png, alt, views) {
+    removeStats(slot);
+    var before = slot.querySelector('.hud, .slot-link') || null;
+    if (png) {
+      var img = document.createElement('img');
+      img.className = 'stat-overlay'; img.setAttribute('src', png); img.setAttribute('alt', alt || ''); img.setAttribute('loading', 'lazy');
+      slot.insertBefore(img, before);
+    }
+    if (views) {
+      var v = document.createElement('span');
+      v.className = 'views-badge'; v.innerHTML = PLAY_SVG + '<b>' + views + '</b>';
+      slot.insertBefore(v, before);
+    }
+  }
   function placeMedia(slot, src) {
     if (!slot.__orig) slot.__orig = slot.innerHTML;
+    var info = library[src] && library[src].meta || null;
     var media;
     if (isVideo(src)) {
       media = document.createElement('video');
       ['autoplay', 'muted', 'loop', 'playsinline'].forEach(function (a) { media.setAttribute(a, ''); });
       media.setAttribute('preload', 'metadata');
       media.muted = true;
+      if (info && info.poster) media.setAttribute('poster', info.poster);
+      if (info && info.audio) media.setAttribute('data-audio', '');
     } else {
       media = document.createElement('img');
       media.setAttribute('alt', '');
@@ -452,6 +489,20 @@
       if (!c.classList.contains('hud') && !c.classList.contains('m07-ui')) c.remove();
     });
     slot.insertBefore(media, slot.firstChild);
+    if (info) {
+      var vtxt = info.stats && info.stats.views != null ? fmtCount(info.stats.views) : '';
+      if (info.statsPng || vtxt) { media.setAttribute('data-stats', info.statsPng || ''); media.setAttribute('data-stats-alt', statsAlt(info)); if (vtxt) media.setAttribute('data-views', vtxt); }
+      if (media.tagName === 'IMG') media.setAttribute('alt', (info.title || ('Post on ' + info.platform)).slice(0, 120));
+      if ((info.statsPng || vtxt) && withStats[src]) addStats(slot, info.statsPng, statsAlt(info), vtxt);
+      if (info.link) {
+        var a = document.createElement('a');
+        a.className = 'slot-link'; a.setAttribute('href', info.link); a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener');
+        a.setAttribute('aria-label', 'Watch on ' + (info.platform || 'the original post'));
+        if (slot.getAttribute('aria-hidden') === 'true') { slot.removeAttribute('aria-hidden'); markDirty(slot, 'aria'); }
+        if (slot.parentElement && slot.parentElement.closest('[aria-hidden="true"]')) a.setAttribute('tabindex', '-1');
+        slot.appendChild(a);
+      }
+    }
     if (media.play) { var p = media.play(); if (p && p.catch) p.catch(function () {}); }
     markDirty(slot, 'html');
     status('Placed ' + src.split('/').pop() + '. Save to keep it.', 'warn');
@@ -465,6 +516,10 @@
     slotBar.__slot = slot;
     slotBar.querySelector('[data-slot="hud"]').hidden = !slot.querySelector('.hud');
     slotBar.querySelector('[data-slot="remove"]').hidden = !slot.querySelector('.slot-media');
+    var sm = slot.querySelector('.slot-media[data-stats]');
+    var sb = slotBar.querySelector('[data-slot="stats"]');
+    sb.hidden = !sm;
+    sb.classList.toggle('on', !!slot.querySelector('.stat-overlay, .views-badge'));
   }
   function hideSlotBar() { slotBar.hidden = true; slotBar.__slot = null; }
   document.addEventListener('mouseover', function (e) {
@@ -479,6 +534,11 @@
     if (!b || !slot) return;
     if (b.dataset.slot === 'replace') { picker.__slot = slot; picker.click(); }
     if (b.dataset.slot === 'hud') { slot.classList.toggle('no-hud'); markDirty(slot, 'class'); }
+    if (b.dataset.slot === 'stats') {
+      var ov = slot.querySelector('.stat-overlay, .views-badge'), sm = slot.querySelector('.slot-media[data-stats]');
+      if (ov) removeStats(slot); else if (sm) addStats(slot, sm.getAttribute('data-stats'), sm.getAttribute('data-stats-alt'), sm.getAttribute('data-views'));
+      markDirty(slot, 'html'); showSlotBar(slot);
+    }
     if (b.dataset.slot === 'remove') {
       if (slot.__orig) { slot.innerHTML = slot.__orig; slot.__orig = null; }
       else { var m = slot.querySelector('.slot-media'); if (m) m.remove(); }
@@ -540,19 +600,114 @@
   /* ------------------------------------------------------------------ media drawer */
   function toggleDrawer() {
     drawer.hidden = !drawer.hidden;
-    if (!drawer.hidden) loadLibrary();
+    if (!drawer.hidden) { loadLibrary(); checkTools(); }
   }
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function loadLibrary() {
     fetch('/__editor/media', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
       var grid = drawer.querySelector('.m07-grid');
-      if (!d.files.length) { grid.innerHTML = '<p class="m07-empty">No uploads yet. Click Upload or drop files here.</p>'; return; }
+      library = {};
+      d.files.forEach(function (f) { library[f.src] = f; });
+      if (!d.files.length) { grid.innerHTML = '<p class="m07-empty">No uploads yet. Click Upload, drop files here, or paste a link above.</p>'; return; }
       grid.innerHTML = d.files.map(function (f) {
-        var thumb = f.video ? '<video src="/' + f.src + '#t=0.5" muted preload="metadata"></video>' : '<img src="/' + f.src + '" alt="" loading="lazy">';
-        return '<button type="button" class="m07-thumb" draggable="true" data-src="' + f.src + '" title="' + f.name + ' (' + (f.size / 1048576).toFixed(1) + ' MB)">' + thumb +
-          '<span>' + (f.video ? 'Video' : 'Image') + '</span></button>';
+        var m = f.meta;
+        var poster = m && m.poster ? ' poster="/' + esc(m.poster) + '"' : '';
+        var thumb = f.video ? '<video src="/' + esc(f.src) + '#t=0.5"' + poster + ' muted preload="metadata"></video>' : '<img src="/' + esc(f.src) + '" alt="" loading="lazy">';
+        var card = '<div class="m07-card"><button type="button" class="m07-thumb" draggable="true" data-src="' + esc(f.src) + '" title="' + esc(f.name) + ' (' + (f.size / 1048576).toFixed(1) + ' MB)">' + thumb +
+          '<span>' + (f.video ? (m && m.audio ? 'Video + sound' : 'Video') : 'Image') + '</span>' + (m ? '<em>' + esc(m.platform) + '</em>' : '') + '</button>';
+        if (m) {
+          card += '<div class="m07-meta">' +
+            '<small>' + esc(statsAlt(m) || 'No public stats') + '</small>' +
+            (m.statsPng || (m.stats && m.stats.views != null) ? '<label><input type="checkbox" data-stats-for="' + esc(f.src) + '"' + (withStats[f.src] ? ' checked' : '') + '> Include stat overlay</label>' : '') +
+            '<span class="m07-row2"><button type="button" data-refresh="' + esc(f.base) + '">Refresh stats</button>' +
+            '<a href="' + esc(m.link) + '" target="_blank" rel="noopener">Open post</a></span></div>';
+        }
+        return card + '</div>';
       }).join('');
     });
   }
+  function checkTools() {
+    fetch('/__editor/tools').then(function (r) { return r.json(); }).then(function (t) {
+      var el = drawer.querySelector('.m07-tools');
+      if (t.ytdlp && t.ffmpeg) { el.hidden = true; return; }
+      el.hidden = false;
+      el.innerHTML = !t.ytdlp
+        ? 'Link downloads need two free tools. In Terminal run: <code>brew install yt-dlp ffmpeg</code> then restart the editor.'
+        : 'Install ffmpeg for the best quality with sound: <code>brew install ffmpeg</code> then restart the editor.';
+    }).catch(function () {});
+  }
+
+  /* stat overlay PNG: drawn here (so it uses the site fonts), saved next to the media file */
+  function fmtCount(n) {
+    if (n == null) return '';
+    if (n >= 1e9) return (n / 1e9).toFixed(n < 1e10 ? 1 : 0).replace(/\.0$/, '') + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(n < 1e7 ? 1 : 0).replace(/\.0$/, '') + 'M';
+    if (n >= 1e4) return (n / 1e3).toFixed(n < 1e5 ? 1 : 0).replace(/\.0$/, '') + 'K';
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(n);
+  }
+  var ICONS = {
+    likes: 'M32 56C12 42 6 31 6 22.5 6 14.5 12.4 9 19.6 9c5.2 0 9.6 3 12.4 7.4C34.8 12 39.2 9 44.4 9 51.6 9 58 14.5 58 22.5 58 31 52 42 32 56z',
+    comments: 'M32 8C17.6 8 6 17.8 6 30c0 6.2 3 11.8 7.9 15.8L11 57l13.3-6.6c2.4.6 5 .9 7.7.9 14.4 0 26-9.8 26-21.9S46.4 8 32 8z',
+    shares: 'M58 6 6 27.5l19 7.5 7.5 19L58 6zM25 35 58 6',
+    views: 'M12 7.5v49L56 32 12 7.5z'
+  };
+  function renderStats(meta) {
+    var st = meta.stats || {};
+    var rows = ['likes', 'comments', 'shares'].filter(function (k) { return st[k] != null; });
+    if (!rows.length) return Promise.resolve(null);
+    var S = 2, W = 240, RH = 150, H = rows.length * RH + 70;
+    var c = document.createElement('canvas'); c.width = W * S; c.height = H * S;
+    var g = c.getContext('2d'); g.scale(S, S);
+    return Promise.all([document.fonts.load('800 44px "Bricolage Grotesque"'), document.fonts.load('500 18px "DM Mono"')]).catch(function () {}).then(function () {
+      g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 16; g.shadowOffsetY = 2;
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineJoin = 'round'; g.lineCap = 'round';
+      rows.forEach(function (k, i) {
+        var y = i * RH + 10;
+        g.save(); g.translate(W / 2 - 34, y); g.scale(68 / 64, 68 / 64);
+        var p = new Path2D(ICONS[k]);
+        if (k === 'shares') { g.lineWidth = 5.5; g.stroke(p); } else g.fill(p);
+        g.restore();
+        g.font = '800 44px "Bricolage Grotesque", "Arial Black", sans-serif';
+        g.fillText(fmtCount(st[k]), W / 2, y + 122);
+      });
+      g.font = '500 18px "DM Mono", ui-monospace, monospace';
+      g.fillStyle = 'rgba(255,255,255,.9)';
+      g.fillText(('on ' + (meta.platform || '')).toUpperCase(), W / 2, H - 22);
+      return new Promise(function (res) { c.toBlob(res, 'image/png'); });
+    });
+  }
+  function saveStatsPng(base, meta) {
+    return renderStats(meta).then(function (blob) {
+      if (!blob) return null;
+      return fetch('/__editor/stats-png?base=' + encodeURIComponent(base), { method: 'POST', body: blob }).then(function (r) { return r.json(); });
+    });
+  }
+  drawer.querySelector('.m07-import').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var form = e.target, btn = form.querySelector('button');
+    var link = form.link.value.trim();
+    if (!link) return;
+    btn.disabled = true; btn.textContent = 'Downloading\u2026';
+    status('Downloading the highest quality version with sound. Big videos can take a minute\u2026');
+    fetch('/__editor/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link, cookies: form.cookies.value }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Download failed');
+        return saveStatsPng(d.item.base, d.item).then(function () { return d.item; });
+      })
+      .then(function (item) {
+        form.reset();
+        status('Saved ' + item.name + ' (' + (item.size / 1048576).toFixed(1) + ' MB) with its link' + (item.audio ? ' and sound' : '') + '. Drag it onto a frame.');
+        loadLibrary();
+      })
+      .catch(function (err) { status(err.message, 'err'); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Download'; });
+  });
+  drawer.addEventListener('change', function (e) {
+    var t = e.target.closest('[data-stats-for]');
+    if (t) withStats[t.getAttribute('data-stats-for')] = t.checked;
+  });
   drawer.addEventListener('dragstart', function (e) {
     var t = e.target.closest('.m07-thumb');
     if (!t) return;
@@ -560,6 +715,16 @@
     e.dataTransfer.effectAllowed = 'copy';
   });
   drawer.addEventListener('click', function (e) {
+    var rf = e.target.closest('[data-refresh]');
+    if (rf) {
+      rf.disabled = true; rf.textContent = 'Refreshing\u2026';
+      fetch('/__editor/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base: rf.getAttribute('data-refresh') }) })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (!d.ok) throw new Error(d.error); return saveStatsPng(d.item.base, d.item).then(function () { status('Stats updated: ' + statsAlt(d.item) + '. Save the page and push to publish them.'); }); })
+        .catch(function (err) { status(err.message, 'err'); })
+        .then(loadLibrary);
+      return;
+    }
     var t = e.target.closest('.m07-thumb');
     if (!t) return;
     if (selectedSlot) placeMedia(selectedSlot, t.dataset.src);
@@ -573,7 +738,7 @@
   /* ------------------------------------------------------------------ save */
   function cleanInner(el) {
     var c = el.cloneNode(true);
-    c.querySelectorAll('.m07-ui, .bub').forEach(function (n) { n.remove(); });
+    c.querySelectorAll('.m07-ui, .bub, .sound-btn').forEach(function (n) { n.remove(); });
     c.querySelectorAll('.tc').forEach(function (n) { n.textContent = '00:00:00:00'; });
     c.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
     c.querySelectorAll('[class]').forEach(function (n) {
@@ -605,6 +770,7 @@
       jobs.forEach(function (j) {
         if (j.kinds.has('html')) j.p.innerHTML = cleanInner(j.el);
         if (j.kinds.has('style')) { var st = j.el.getAttribute('style'); if (st && st.trim()) j.p.setAttribute('style', st); else j.p.removeAttribute('style'); }
+        if (j.kinds.has('aria')) j.p.removeAttribute('aria-hidden');
         if (j.kinds.has('class')) { var cl = cleanClass(j.el); if (cl) j.p.className = cl; else j.p.removeAttribute('class'); }
       });
     } catch (err) { saving = false; status(err.message, 'err'); return; }
