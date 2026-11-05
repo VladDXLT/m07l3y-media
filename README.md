@@ -51,10 +51,11 @@ Shared files: `css/styles.css` (all styles + brand tokens), `js/main.js` (menu, 
    - **Corner squares**: bigger / smaller including everything inside. **Side bars** (teal): change only the box. On sections, cards and text boxes a side changes the empty space on that side (past zero the box gets narrower / shorter); on videos, photos and shapes it changes the box size and the picture fills it.
    - **Dot on top**: rotate (snaps to 0°/15°/30°; hold Option for free).
    - **Front** puts it over everything (other sections too, never over the top menu), **Back** sends it behind its neighbours.
-   - **Duplicate** (Cmd+D), **Copy** / **Paste** (Cmd+C / Cmd+V, works between pages: pastes after the selected box), **↑ / ↓** reorder, **Reset**, **Delete** (Backspace), **Undo** (Cmd+Z).
+   - **Duplicate** (Cmd+D), **Copy** / **Paste** (Cmd+C / Cmd+V, works between pages: pastes after the selected box), **↑ / ↓** reorder, **Reset**, **Delete** (Backspace).
    - Hover effects and animations pause while Layout is on, so things hold still. On phones, moved boxes go back to their normal spot (rotation, smaller sizes and spacing stay), so the phone version never breaks.
-5. Press **Cmd+S** (or Save). Changes are written straight into the .html files. Uploads go to `assets/uploads/`. Backups of every save are kept in `.editor-backups/` (not uploaded to GitHub).
-6. Publish: open GitHub Desktop, write a short summary, click **Commit to main**, then **Push origin**.
+4c. **Undo / Redo** (Cmd+Z / Cmd+Shift+Z, or the toolbar buttons) undo the last change of any kind, in order: text, media, stats, moves, sizes, deletes, pastes. Moves snap back instantly; bigger changes reload the page where you were. It keeps working after reloads until you close the tab.
+5. Changes **save automatically** a second after you make them (Cmd+S / Save still works). Changes are written straight into the .html files. Uploads go to `assets/uploads/`. Backups of every save are kept in `.editor-backups/` (not uploaded to GitHub).
+6. Only uploads that are used on a page get published (the editor keeps `assets/uploads/.gitignore` up to date); everything else stays in Media on your computer. Publish: open GitHub Desktop, write a short summary, click **Commit to main**, then **Push origin**.
 
 Use the page menu in the toolbar to switch pages. Click **Editing** to switch to Preview, where links and buttons work normally. The editor only runs on your computer; the public site never loads it.
 

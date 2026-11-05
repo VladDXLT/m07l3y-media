@@ -73,6 +73,7 @@
       }
       if (j !== pristine.length) throw new Error('This page changed on disk. Reload it before editing.');
       ready = true;
+      initHistory();
       status(layout ? 'Ready. Layout: click a box to select it.' : 'Ready. Click any text to edit.');
       afterReady();
     })
@@ -118,7 +119,8 @@
       '<span class="m07-sep"></span>' +
       '<button type="button" data-act="layout" class="m07-layoutbtn" title="Layout: move, resize, rotate, duplicate, copy/paste and delete any box">Layout</button>' +
       '<button type="button" data-act="media" title="Upload and place images or videos">Media</button>' +
-      '<button type="button" data-act="undo" title="Undo (Cmd+Z)">Undo</button>' +
+      '<button type="button" data-act="undo" title="Undo the last change, whatever it was (Cmd+Z)">Undo</button>' +
+      '<button type="button" data-act="redo" title="Redo (Cmd+Shift+Z)">Redo</button>' +
       '<span class="m07-status" role="status" aria-live="polite">Loading&hellip;</span>' +
       '<button type="button" data-act="save" class="m07-save" title="Save to the website files (Cmd+S)">Save</button>' +
       '<button type="button" data-act="collapse" class="m07-collapse" title="Hide toolbar">&#8211;</button>' +
@@ -189,7 +191,9 @@
     dirty.get(el).add(kind);
     changeCount++;
     refreshStatus();
+    noteChange(kind);
   }
+
 
   /* ------------------------------------------------------------------ edit / preview mode */
   function setEditing(on) {
@@ -390,8 +394,8 @@
     else if (act === 'mode') setEditing(!editing);
     else if (act === 'media') toggleDrawer();
     else if (act === 'layout') setLayout(!layout);
-    else if (act === 'undo' && layout) layoutUndo();
-    else if (act === 'undo') { if (active) { active.focus(); document.execCommand('undo'); markDirty(active, 'html'); } else status('Click into the text you want to undo.'); }
+    else if (act === 'undo') { if (active && document.queryCommandEnabled && document.queryCommandEnabled('undo')) { active.focus(); document.execCommand('undo'); markDirty(active, 'html'); } else { deactivate(); undoAll(); } }
+    else if (act === 'redo') redoAll();
     else if (act === 'save') save();
     else if (act === 'collapse') collapse(true);
   });
@@ -933,7 +937,7 @@
   var layout = false;
   var sel = [];                   // selected elements, last one = primary
   var hoverEl = null;
-  var styleUndo = [];             // [[{el, style}], ...] one entry per gesture
+
   var NOT_BOX = { HTML: 1, HEAD: 1, BODY: 1, SCRIPT: 1, STYLE: 1, LINK: 1, META: 1, TITLE: 1, BR: 1, SOURCE: 1, TRACK: 1, NOSCRIPT: 1, TEMPLATE: 1, OPTION: 1 };
   var ATOMIC = '.frame, .portrait, .band, .btn-skew, .btn-pill, .btn, .logo, .foot-logo, svg, button, select, input, textarea';
   var PARTS = '.stat-pill, .views-badge, .stat-overlay, .sound-btn';    // pieces inside a video frame that can still move
@@ -1013,7 +1017,10 @@
     v.x += (dx * c - dy * s) / k; v.y += (dx * s + dy * c) / k; setVars(el, v);
   }
   // remember styles before a gesture (one Undo step per gesture)
-  function snapshot(els) { styleUndo.push(els.map(function (el) { return { el: el, style: el.getAttribute('style') }; })); if (styleUndo.length > 100) styleUndo.shift(); }
+  function snapshot(els) {   // styles before a gesture, so Undo can put them back instantly (no reload)
+    var states = els.map(function (el) { return { el: el, style: el.getAttribute('style') }; });
+    pendingLive = (pendingLive || []).concat(states);
+  }
   // Save a style change. Pieces added in the editor (stats) have no spot in the file yet: save their frame instead.
   function markStyle(el) {
     if (el.__pid != null) { markDirty(el, 'style'); return; }
@@ -1432,6 +1439,7 @@
   function fileOp(label, els, fn) {
     if (!ready) { status('Still loading, try again in a second.', 'warn'); return; }
     if (saving) return;
+    if (histTimer) commitHist();
     var built;
     try { built = buildDoc(els.map(function (el) { return el.__pid; })); } catch (err) { status(err.message, 'err'); return; }
     var refs = built.refs;
@@ -1448,8 +1456,8 @@
       .then(function (d) {
         saving = false;
         if (!d.ok) throw new Error(d.error || 'Save failed');
-        var stack = fileUndoStack(); stack.push({ page: PAGE, backup: d.backup, label: label }); writeSession('undo', JSON.stringify(stack.slice(-30)));
-        writeSession('after', JSON.stringify({ page: PAGE, y: window.scrollY, sel: selIdx, msg: label + '. Saved. Undo puts it back.' }));
+        pushHist({ html: curHtml, label: label }); redoStack = []; storeStacks();
+        writeSession('after', JSON.stringify({ page: PAGE, y: window.scrollY, sel: selIdx, layout: true, msg: label + '. Saved. Undo (Cmd+Z) puts it back.' }));
         savedCount = changeCount;
         location.reload();
       })
@@ -1561,33 +1569,9 @@
   boxBar.addEventListener('mousedown', function (e) { e.preventDefault(); });
   boxBar.addEventListener('click', function (e) { var b = e.target.closest('[data-lay]'); if (b) layoutAction(b.dataset.lay); });
 
-  function layoutUndo() {
-    var last = styleUndo.pop();
-    if (last) {
-      last.forEach(function (u) {
-        if (u.style == null) u.el.removeAttribute('style'); else u.el.setAttribute('style', u.style);
-        markStyle(u.el);
-      });
-      status('Undone.'); return;
-    }
-    var stack = fileUndoStack(), u = stack.pop();
-    if (!u || u.page !== PAGE) { status('Nothing to undo here.'); return; }
-    if (changeCount !== savedCount && !confirm('Undo will reload the page and drop changes you haven’t saved. Continue?')) return;
-    fetch('/__editor/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(u) })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d.ok) throw new Error(d.error);
-        writeSession('undo', JSON.stringify(stack));
-        writeSession('after', JSON.stringify({ page: PAGE, y: window.scrollY, sel: [], msg: 'Undid: ' + u.label + '.' }));
-        savedCount = changeCount; location.reload();
-      })
-      .catch(function (err) { status(err.message, 'err'); });
-  }
-
   document.addEventListener('keydown', function (e) {
     if (!layout || modalOpen || e.target.closest('.m07-ui input, .m07-ui select, .m07-ui textarea')) return;
     var mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
-    if (mod && k === 'z') { e.preventDefault(); layoutUndo(); return; }
     if (mod && k === 'c') { e.preventDefault(); copyBoxes(); return; }
     if (mod && k === 'v') { e.preventDefault(); pasteBoxes(); return; }
     if (mod && k === 'd') { e.preventDefault(); layoutAction('dup'); return; }
@@ -1612,7 +1596,7 @@
     if (!a || a.page !== PAGE) return;
     writeSession('after', null);
     window.scrollTo(0, a.y || 0);
-    if (!layout) setLayout(true);
+    if (a.layout && !layout) setLayout(true);
     var want = [].concat(a.sel == null ? [] : a.sel), found = [];
     for (var i = 0; i < LIVE.length; i++) if (want.indexOf(LIVE[i].__pid) > -1) found.push(LIVE[i]);
     sel = found; paintSel();
@@ -1787,6 +1771,106 @@
     else if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
   document.body ? document.body.appendChild(trimUI) : document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(trimUI); });
+
+  /* ------------------------------------------------------------------ UNDO / REDO for everything
+   * Every change (text, media, stats, moves, sizes, deletes, pastes...) is recorded as the whole
+   * page as it would be saved. Undo goes back one step: moves / sizes / tilts snap back instantly;
+   * anything else (a delete, a paste, text, media) saves the earlier version and reloads the page
+   * where you were. Works after reloads too (until the tab is closed). Cmd+Shift+Z redoes.
+   */
+  var hist = [], redoStack = [], curHtml = null, histTimer = 0, pendingLive = null, pendingKinds = {}, quietHist = false;
+  function histKey(k) { return 'm07ed-' + k + '-' + PAGE; }
+  function loadStack(k) { try { var a = JSON.parse(sessionStorage.getItem(histKey(k)) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function storeStack(k, arr) {
+    var plain = arr.map(function (e) { return { html: e.html, label: e.label || '' }; });
+    while (true) {
+      var str = JSON.stringify(plain);
+      if (str.length < 1500000 || !plain.length) {
+        try { sessionStorage.setItem(histKey(k), str); return; } catch (e) { if (!plain.length) return; }
+      }
+      plain.shift(); arr.shift();   // too big for the browser's storage: drop the oldest step
+    }
+  }
+  function storeStacks() { storeStack('hist', hist); storeStack('redo', redoStack); }
+  function pushHist(e) { hist.push(e); if (hist.length > 60) hist.shift(); }
+  function snapHtml() { return '<!doctype html>\n' + buildDoc([]).doc.documentElement.outerHTML + '\n'; }
+  function initHistory() {
+    try { curHtml = snapHtml(); } catch (e) { curHtml = null; }
+    hist = loadStack('hist'); redoStack = loadStack('redo');
+  }
+  function noteChange(kind) {
+    if (quietHist || !ready) return;
+    pendingKinds[kind] = 1;
+    clearTimeout(histTimer); histTimer = setTimeout(commitHist, 400);
+  }
+  function commitHist() {
+    clearTimeout(histTimer); histTimer = 0;
+    if (!ready || curHtml == null) return;
+    var now; try { now = snapHtml(); } catch (e) { return; }
+    if (now !== curHtml) {
+      var styleOnly = Object.keys(pendingKinds).every(function (k) { return k === 'style'; });
+      pushHist({ html: curHtml, live: styleOnly ? pendingLive : null });
+      redoStack = []; storeStacks();
+    }
+    curHtml = now; pendingLive = null; pendingKinds = {};
+    // auto-save shortly after every change, so nothing is lost if the tab closes or reloads
+    scheduleAutoSave();
+  }
+  var autoSaveTimer = 0;
+  function scheduleAutoSave() {
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(function () { if (changeCount !== savedCount && !saving) save(); }, 1200);
+  }
+  function undoAll() {
+    if (!ready) return;
+    if (histTimer) commitHist();
+    var e = hist.pop();
+    if (!e) { status('Nothing to undo.'); return; }
+    redoStack.push({ html: curHtml });
+    if (e.live && e.live.length && e.live.every(function (u) { return u.el.isConnected; })) {
+      quietHist = true;
+      e.live.slice().reverse().forEach(function (u) {   // oldest state wins
+        if (u.style == null) u.el.removeAttribute('style'); else u.el.setAttribute('style', u.style);
+        markStyle(u.el);
+      });
+      quietHist = false;
+      try { curHtml = snapHtml(); } catch (er) { curHtml = e.html; }
+      storeStacks(); status('Undone. (Cmd+Shift+Z to redo)'); scheduleAutoSave(); return;
+    }
+    storeStacks(); jumpTo(e.html, 'Undone. (Cmd+Shift+Z to redo)');
+  }
+  function redoAll() {
+    if (!ready) return;
+    if (histTimer) commitHist();
+    var e = redoStack.pop();
+    if (!e) { status('Nothing to redo.'); return; }
+    pushHist({ html: curHtml }); storeStacks();
+    jumpTo(e.html, 'Redone.');
+  }
+  function jumpTo(html, msg) {
+    if (saving) return;
+    saving = true; status('One moment…');
+    fetch('/__editor/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page: PAGE, html: html }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        saving = false;
+        if (!d.ok) throw new Error(d.error || 'Save failed');
+        writeSession('after', JSON.stringify({ page: PAGE, y: window.scrollY, sel: [], layout: layout, msg: msg }));
+        savedCount = changeCount;
+        location.reload();
+      })
+      .catch(function (err) { saving = false; status('Couldn’t undo: ' + err.message, 'err'); });
+  }
+  document.addEventListener('keydown', function (e) {
+    var mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+    if (!mod || (k !== 'z' && k !== 'y') || modalOpen) return;
+    if (e.target.closest && e.target.closest('input, textarea, select')) return;   // typing in a field: its own undo
+    var redo = k === 'y' || e.shiftKey;
+    // typing in a text box: undo the typing first, then everything else
+    if (!redo && active && active.contains(e.target) && document.queryCommandEnabled && document.queryCommandEnabled('undo')) return;
+    e.preventDefault(); e.stopPropagation();
+    if (redo) redoAll(); else { deactivate(); undoAll(); }
+  }, true);
 
   /* ------------------------------------------------------------------ save */
   function cleanInner(el) {

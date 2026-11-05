@@ -501,6 +501,7 @@ async function handleEditorApi(req, res, url) {
     await fsp.copyFile(file, path.join(BACKUPS, backup));
     await fsp.writeFile(file, html, 'utf8');
     console.log(`  saved   ${path.basename(file)}`);
+    syncUploads();
     return json(res, 200, { ok: true, page: path.basename(file), savedAt: Date.now(), backup });
   }
   // Undo a layout change: put back the copy saved right before it (only if nothing was saved after it)
@@ -670,6 +671,7 @@ async function handleEditorApi(req, res, url) {
       if (fs.existsSync(from)) await fsp.rename(from, path.join(trash, f));
     }
     console.log(`  removed ${ref} (copy kept in .editor-backups/deleted/)`);
+    syncUploads();
     return json(res, 200, { ok: true });
   }
   if (req.method === 'POST' && route === 'stats-png') {
@@ -769,4 +771,43 @@ function listen(port, tries = 10) {
     if (process.argv.includes('--open')) exec(`open "${link}"`);
   });
 }
+/* Only publish uploads that a page actually uses. Keeps the GitHub site small and fast:
+ * GitHub Pages stops updating a site over 1 GB. Writes assets/uploads/.gitignore and takes unused
+ * uploads out of git (the files stay on your Mac, in the editor's Media). */
+function gitBin() {
+  const w = which('git');
+  if (w && w !== '/usr/bin/git') return w;   // Homebrew etc.
+  // /usr/bin/git on a Mac only works when Apple's developer tools are installed (otherwise it pops up an installer)
+  if (w && (process.platform !== 'darwin' || fs.existsSync('/Library/Developer/CommandLineTools/usr/bin/git') || fs.existsSync('/Applications/Xcode.app'))) return w;
+  const desk = '/Applications/GitHub Desktop.app/Contents/Resources/app/git/bin/git';   // the git inside GitHub Desktop
+  return fs.existsSync(desk) ? desk : null;
+}
+let syncTimer = null;
+function syncUploads() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncUploadsNow().catch(e => console.error('  publish list:', e.message)), 1500); }
+async function syncUploadsNow() {
+  await fsp.mkdir(UPLOADS, { recursive: true });
+  const used = new Set();
+  const scan = async (dir, re) => { for (const f of (await fsp.readdir(dir)).filter(f => re.test(f))) { const t = await fsp.readFile(path.join(dir, f), 'utf8'); for (const m of t.matchAll(/assets\/uploads\/([\w.\-]+)/g)) used.add(m[1]); } };
+  await scan(ROOT, /\.html$/);
+  for (const d of ['css', 'js']) if (fs.existsSync(path.join(ROOT, d))) await scan(path.join(ROOT, d), /\.(css|js)$/);
+  const list = [...used].filter(f => fs.existsSync(path.join(UPLOADS, f))).sort();
+  const body = '# Written by the site editor: only uploads used on a page are published.\n# Everything else stays on your computer (in the editor\'s Media).\n*\n!.gitignore\n' + list.map(f => '!' + f).join('\n') + '\n';
+  const gi = path.join(UPLOADS, '.gitignore');
+  let old = ''; try { old = await fsp.readFile(gi, 'utf8'); } catch (e) {}
+  if (old !== body) await fsp.writeFile(gi, body);
+  // uploads that were published before but aren't used any more: stop publishing them (file stays on disk)
+  const git = gitBin();
+  if (!git || !fs.existsSync(path.join(ROOT, '.git'))) return;
+  // uploads now used on a page that git isn't tracking (new, or taken out earlier): add them back
+  const tracked = new Set((await run(git, ['-C', ROOT, 'ls-files', '--', 'assets/uploads'], 60 * 1000)).stdout.split('\n').filter(Boolean));
+  const add = list.map(f => 'assets/uploads/' + f).filter(f => !tracked.has(f));
+  if (add.length) await run(git, ['-C', ROOT, 'add', '--', ...add], 60 * 1000);
+  const r = await run(git, ['-C', ROOT, 'ls-files', '-ci', '--exclude-standard', '--', 'assets/uploads'], 60 * 1000);
+  const stale = r.stdout.split('\n').filter(Boolean);
+  if (stale.length) {
+    const rm = await run(git, ['-C', ROOT, 'rm', '--cached', '--quiet', '--', ...stale], 60 * 1000);
+    if (rm.code === 0) console.log(`  publish ${stale.length} unused upload(s) won't be uploaded to the website any more (still in Media)`);
+  }
+}
+syncUploads();
 listen(START_PORT);
