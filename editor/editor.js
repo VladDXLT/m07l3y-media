@@ -548,7 +548,10 @@
     slot.querySelectorAll('.stat-overlay, .stat-pill[data-k], .views-badge').forEach(function (n) {
       var k = n.classList.contains('stat-overlay') ? 'overlay' : n.classList.contains('views-badge') ? 'views' : n.getAttribute('data-k');
       if (n.getAttribute('style')) keep[k] = n.getAttribute('style');
+      if (n.getAttribute('data-ref')) keep.ref = n.getAttribute('data-ref');
     });
+    // data-ref: the frame width these stats are sized for (the site scales them with the frame from there)
+    var ref = keep.ref || (slot.offsetWidth ? String(Math.round(slot.offsetWidth * 32 / Math.max(22, Math.min(32, window.innerWidth * 0.025)))) : '');
     removeStats(slot);
     var before = slot.querySelector('.hud, .slot-link') || null;
     var keys = ['likes', 'comments', 'shares'].filter(function (k) { return data[k] != null; });
@@ -560,14 +563,17 @@
         return '<span class="stat-pill sp-' + k + '" data-k="' + k + '"' + (keep[k] ? ' style="' + esc(keep[k]) + '"' : '') + '>' + PILL_ICONS[k] + '<b>' + fmtCount(data[k]) + '</b></span>';
       }).join('') + (data.platform ? '<span class="stat-pill sp-on" data-k="on"' + (keep.on ? ' style="' + esc(keep.on) + '"' : '') + '>on ' + esc(data.platform) + '</span>' : '');
       if (keep.overlay) ov.setAttribute('style', keep.overlay);
+      if (ref) ov.setAttribute('data-ref', ref);
       slot.insertBefore(ov, before);
     }
     if (views) {
       var v = document.createElement('span');
       v.className = 'views-badge'; v.innerHTML = PLAY_SVG + '<b>' + views + '</b>';
       if (keep.views) v.setAttribute('style', keep.views);
+      if (ref) v.setAttribute('data-ref', ref);
       slot.insertBefore(v, before);
     }
+    if (window.__m07FitStats) window.__m07FitStats(slot);
   }
   function placeMedia(slot, src) {
     if (!slot.__orig) slot.__orig = slot.innerHTML;
@@ -1968,8 +1974,10 @@
   }, true);
 
   /* ------------------------------------------------------------------ save */
+  function noRuntimeStyle(st) { return (st || '').replace(/(^|;)\s*--stat-k\s*:[^;]*;?/g, '$1').trim(); }
   function cleanInner(el) {
     var c = el.cloneNode(true);
+    c.querySelectorAll('[style*="--stat-k"]').forEach(function (n) { var st = noRuntimeStyle(n.getAttribute('style')); if (st) n.setAttribute('style', st); else n.removeAttribute('style'); });
     // the sound button is made by the site's script: keep its Layout changes on the video instead
     c.querySelectorAll('.sound-btn').forEach(function (b) {
       var v = b.parentElement && b.parentElement.querySelector('video.slot-media:not(.pl-buf)');
@@ -2008,7 +2016,7 @@
     });
     jobs.forEach(function (j) {
       if (j.kinds.has('html')) j.p.innerHTML = cleanInner(j.el);
-      if (j.kinds.has('style')) { var st = j.el.getAttribute('style'); if (st && st.trim()) j.p.setAttribute('style', st); else j.p.removeAttribute('style'); }
+      if (j.kinds.has('style')) { var st = noRuntimeStyle(j.el.getAttribute('style')); if (st && st.trim()) j.p.setAttribute('style', st); else j.p.removeAttribute('style'); }
       if (j.kinds.has('aria')) j.p.removeAttribute('aria-hidden');
       if (j.kinds.has('class')) { var cl = cleanClass(j.el); if (cl) j.p.className = cl; else j.p.removeAttribute('class'); }
     });

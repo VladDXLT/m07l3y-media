@@ -851,7 +851,26 @@ async function runPhoneQueue() {
 }
 let syncTimer = null;
 function syncUploads() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncUploadsNow().catch(e => console.error('  publish list:', e.message)), 1500); }
+/* Browsers keep old copies of styles.css / main.js. Each page links them with ?v=<fingerprint of the file>,
+ * so a changed file gets a new address and every visitor loads the new version right away. */
+import crypto from 'node:crypto';
+async function stampAssets() {
+  const ver = {};
+  for (const f of ['css/styles.css', 'js/main.js', 'js/chat.js']) {
+    try { ver[f] = crypto.createHash('sha1').update(await fsp.readFile(path.join(ROOT, f))).digest('hex').slice(0, 8); } catch (e) {}
+  }
+  for (const page of (await fsp.readdir(ROOT)).filter(f => f.endsWith('.html'))) {
+    const file = path.join(ROOT, page), html = await fsp.readFile(file, 'utf8');
+    let out = html;
+    for (const [f, v] of Object.entries(ver)) {
+      const re = new RegExp('((?:href|src)=")' + f.replace(/[.\/]/g, m => '\\' + m) + '(?:\\?v=[\\w]*)?"', 'g');
+      out = out.replace(re, `$1${f}?v=${v}"`);
+    }
+    if (out !== html) await fsp.writeFile(file, out);
+  }
+}
 async function syncUploadsNow() {
+  await stampAssets().catch(e => console.error('  version stamp:', e.message));
   await fsp.mkdir(UPLOADS, { recursive: true });
   const used = new Set();
   const scan = async (dir, re) => { for (const f of (await fsp.readdir(dir)).filter(f => re.test(f))) { const t = await fsp.readFile(path.join(dir, f), 'utf8'); for (const m of t.matchAll(/assets\/uploads\/([\w.\-]+)/g)) used.add(m[1]); } };

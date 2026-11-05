@@ -265,6 +265,24 @@
     window.__m07SetupVideo = setupVideo;   // used by the local editor after placing clips
   }
 
+  /* ---- Stats on video frames: keep their size relative to the frame (data-ref = frame width they were placed at) ---- */
+  function fitStats(f) {
+    var holder = f.querySelector('div.stat-overlay[data-ref], .views-badge[data-ref]');
+    var ref = holder ? parseFloat(holder.getAttribute('data-ref')) : 0;
+    if (!ref || !f.offsetWidth) { f.style.removeProperty('--stat-k'); return; }
+    f.style.setProperty('--stat-k', Math.max(0.5, Math.min(1.8, f.offsetWidth / ref)).toFixed(3));
+  }
+  function fitAllStats() { document.querySelectorAll('.frame, .portrait').forEach(fitStats); }
+  fitAllStats();
+  if ('ResizeObserver' in window) {
+    var sro = new ResizeObserver(function (es) { es.forEach(function (e) { fitStats(e.target); }); });
+    document.querySelectorAll('.frame, .portrait').forEach(function (f) { sro.observe(f); });
+    window.__m07FitStats = function (f) { if (f) { sro.observe(f); fitStats(f); } else fitAllStats(); };
+  } else {
+    window.addEventListener('resize', fitAllStats);
+    window.__m07FitStats = function (f) { if (f) fitStats(f); else fitAllStats(); };
+  }
+
   /* ---- Touch screens: play the hover effects as things scroll through the middle of the screen ---- */
   if (!reduce && window.matchMedia && matchMedia('(hover: none)').matches && 'IntersectionObserver' in window) {
     var hio = new IntersectionObserver(function (entries) {

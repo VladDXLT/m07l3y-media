@@ -969,18 +969,35 @@ div.stat-overlay{position:absolute;right:4%;top:50%;transform:translateY(-50%);z
 [style*="--m-s"]{scale:var(--m-s)}
 [style*="--m-z"]{z-index:var(--m-z)}
 [style*="--m-w"]{width:var(--m-w)!important;max-width:100%!important;flex:none}
-[style*="--m-h"]{height:var(--m-h)!important;min-height:0!important;aspect-ratio:auto!important}
+[style*="--m-h"]:is(.frame,.portrait,img,video,svg,canvas,iframe,.deco,.big-o,.svc-shot,.stat-pill,.views-badge,.stat-overlay,.sound-btn){height:var(--m-h)!important;min-height:0!important;aspect-ratio:auto!important}
+[style*="--m-h"]:not(:is(.frame,.portrait,img,video,svg,canvas,iframe,.deco,.big-o,.svc-shot,.stat-pill,.views-badge,.stat-overlay,.sound-btn)){min-height:var(--m-h)!important}
 [style*="--m-pt"]{padding-top:var(--m-pt)!important}[style*="--m-pr"]{padding-right:var(--m-pr)!important}
 [style*="--m-pb"]{padding-bottom:var(--m-pb)!important}[style*="--m-pl"]{padding-left:var(--m-pl)!important}
+/* desktop moves don't fit the stacked tablet/phone layouts: ignore them there (pieces inside video frames excepted) */
+@media (max-width:980px){ [style*="--m-x"],[style*="--m-y"]{translate:none} }
 @media (max-width:700px){
-  [style*="--m-x"],[style*="--m-y"]{translate:none}[style*="--m-s"]{scale:min(var(--m-s),1)}
+  [style*="--m-s"]{scale:min(var(--m-s),1)}
   [style*="--m-ar"]{height:auto!important;aspect-ratio:var(--m-ar)!important}
+  [style*="--m-h"]:not(:is(.frame,.portrait,img,video,svg,canvas,iframe,.deco,.big-o,.svc-shot,.stat-pill,.views-badge,.stat-overlay,.sound-btn)){min-height:0!important}
   [style*="--m-pt"]{padding-top:min(var(--m-pt),14vw)!important}[style*="--m-pb"]{padding-bottom:min(var(--m-pb),14vw)!important}
   [style*="--m-pl"]{padding-left:min(var(--m-pl),6vw)!important}[style*="--m-pr"]{padding-right:min(var(--m-pr),6vw)!important}
 }
 
 /* video frames are size containers, so stats / views / sound button positions (in cqw / cqh) scale with the frame */
 .frame,.portrait{container-type:size}
-@media (max-width:700px){
+@media (max-width:980px){
   .frame [style*="--m-x"],.frame [style*="--m-y"],.portrait [style*="--m-x"],.portrait [style*="--m-y"]{translate:var(--m-x,0px) var(--m-y,0px)}
 }
+
+/* Phones/tablets: decorative pieces and the tilted strips may poke past the screen edge,
+   but must never widen the page (that made sections look shifted/overlapping on phones). */
+.bands,.cta-band{overflow-x:clip!important}
+@media (max-width:1024px){ main > section, main > div, body > section, body > header + section{overflow-x:clip} }
+
+/* Stats inside a frame keep the size they had when they were placed, relative to the frame
+   (js sets --stat-k = frame width / data-ref), so they never crowd or overlap on smaller screens */
+.frame[style*="--stat-k"] div.stat-overlay,.portrait[style*="--stat-k"] div.stat-overlay{gap:calc(18px*var(--stat-k))}
+.frame[style*="--stat-k"] .stat-pill,.portrait[style*="--stat-k"] .stat-pill{font-size:calc(16.8px*var(--stat-k));gap:calc(3px*var(--stat-k))}
+.frame[style*="--stat-k"] .stat-pill svg,.portrait[style*="--stat-k"] .stat-pill svg{width:calc(32px*var(--stat-k))}
+.frame[style*="--stat-k"] .stat-pill.sp-on,.portrait[style*="--stat-k"] .stat-pill.sp-on{font-size:calc(9.92px*var(--stat-k))}
+.frame[style*="--stat-k"] .views-badge,.portrait[style*="--stat-k"] .views-badge{font-size:calc(16.8px*var(--stat-k));left:calc(10px*var(--stat-k));bottom:calc(10px*var(--stat-k));gap:calc(5px*var(--stat-k))}
