@@ -200,6 +200,8 @@
       if (!v.hasAttribute('data-audio')) return pl;
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'sound-btn'; b.setAttribute('aria-label', 'Turn sound on'); b.innerHTML = ICON_OFF;
+      var custom = v.getAttribute('data-sound-style');   // where / how big it was set in the editor's Layout mode
+      if (custom) b.setAttribute('style', custom);
       b.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
         var on = pl.muted;

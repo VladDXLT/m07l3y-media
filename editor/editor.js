@@ -506,7 +506,7 @@
       media.setAttribute('preload', 'metadata');
       media.muted = true;
       if (info && info.poster) media.setAttribute('poster', info.poster);
-      if (info && info.audio) media.setAttribute('data-audio', '');
+      if (!info || info.audio !== false) media.setAttribute('data-audio', '');   // your own uploads: assume they have sound
     } else {
       media = document.createElement('img');
       media.setAttribute('alt', '');
@@ -514,6 +514,9 @@
     }
     media.className = 'slot-media';
     media.setAttribute('src', src);
+    var oldV = slot.querySelector('video.slot-media:not(.pl-buf)');
+    if (oldV && oldV.getAttribute('data-sound-style')) media.setAttribute('data-sound-style', oldV.getAttribute('data-sound-style'));
+    if (media.tagName === 'VIDEO') keepSoundStyle(slot, media);
     Array.prototype.slice.call(slot.children).forEach(function (c) {
       if (!c.classList.contains('hud') && !c.classList.contains('m07-ui')) c.remove();
     });
@@ -540,7 +543,12 @@
   }
   // Add another clip to a frame: the clips play one after another with no gap (js/main.js)
   function clipList(v) { return (v.getAttribute('data-playlist') || v.getAttribute('src') || '').split('|').filter(Boolean); }
+  function keepSoundStyle(slot, v) {
+    var b = slot.querySelector('.sound-btn'), st = b && b.getAttribute('style');
+    if (st && st.trim()) v.setAttribute('data-sound-style', st);
+  }
   function setClips(slot, v, list) {
+    keepSoundStyle(slot, v);
     slot.querySelectorAll('.pl-buf, .sound-btn').forEach(function (n) { n.remove(); });
     var fresh = v.cloneNode(false);             // a clean player (the old one keeps its own listeners)
     fresh.className = 'slot-media';
@@ -928,11 +936,11 @@
   var styleUndo = [];             // [[{el, style}], ...] one entry per gesture
   var NOT_BOX = { HTML: 1, HEAD: 1, BODY: 1, SCRIPT: 1, STYLE: 1, LINK: 1, META: 1, TITLE: 1, BR: 1, SOURCE: 1, TRACK: 1, NOSCRIPT: 1, TEMPLATE: 1, OPTION: 1 };
   var ATOMIC = '.frame, .portrait, .band, .btn-skew, .btn-pill, .btn, .logo, .foot-logo, svg, button, select, input, textarea';
-  var PARTS = '.stat-pill, .views-badge, .stat-overlay';    // pieces inside a video frame that can still move
+  var PARTS = '.stat-pill, .views-badge, .stat-overlay, .sound-btn';    // pieces inside a video frame that can still move
   var CLIPS_ON_PURPOSE = '.frame, .portrait, .band';       // these keep cropping their insides
   var NAMES = [
     ['.stat-pill.sp-likes', 'Likes'], ['.stat-pill.sp-comments', 'Comments'], ['.stat-pill.sp-shares', 'Shares'], ['.stat-pill.sp-on', 'Platform tag'],
-    ['.stat-overlay', 'Likes / comments / shares'], ['.views-badge', 'Views'],
+    ['.stat-overlay', 'Likes / comments / shares'], ['.views-badge', 'Views'], ['.sound-btn', 'Sound button'],
     ['.bands', 'Scrolling strips'], ['.band', 'Scrolling strip'], ['.frame', 'Video box'], ['.portrait', 'Photo'],
     ['.collage', 'Video collage'], ['.gallery', 'Gallery'], ['.g-item', 'Gallery item'], ['.svc', 'Service card'], ['.svc-shot', 'Service video'], ['.tile', 'Work tile'],
     ['.rate', 'Price card'], ['.tier', 'Plan card'], ['.stat', 'Stat'], ['.stats', 'Stats row'], ['.btn-skew,.btn-pill,.btn', 'Button'],
@@ -991,7 +999,7 @@
     if (!el.getAttribute('style') || !el.getAttribute('style').trim()) el.removeAttribute('style');
   }
   // box size and the space inside its edges (side handles)
-  var SIZE_BOX = '.frame, .portrait, img, video, iframe, svg, canvas, .deco, .big-o, .svc-shot, .stat-pill, .views-badge, .stat-overlay';
+  var SIZE_BOX = '.frame, .portrait, img, video, iframe, svg, canvas, .deco, .big-o, .svc-shot, .stat-pill, .views-badge, .stat-overlay, .sound-btn';
   function sizeDriven(el) { return el.matches(SIZE_BOX) || /^(absolute|fixed)$/.test(getComputedStyle(el).position); }
   function setVar(el, k, val, unit) {
     if (val == null) el.style.removeProperty(k); else el.style.setProperty(k, (Math.round(val * 10) / 10) + unit);
@@ -1024,7 +1032,7 @@
   function toUnit(el) {
     if (!el || el.nodeType !== 1 || el === document.body || el === document.documentElement || el.closest('.m07-ui')) return null;
     var part = el.closest(PARTS);
-    if (part) return part.matches('.stat-overlay') || part.matches('.views-badge') || part.matches('.stat-pill') ? part : null;
+    if (part) return part;
     var atom = el.closest(ATOMIC), up;
     while (atom && (up = atom.parentElement && atom.parentElement.closest(ATOMIC))) atom = up;   // the outermost piece
     for (var n = atom || el; n && n !== document.body; n = n.parentElement) if (selectable(n)) return n;
@@ -1041,7 +1049,7 @@
       // likes / comments / views sit under the frame's click-through link: prefer them when pointing at one
       for (var j = 0; j < stack.length; j++) {
         if (!first.contains(stack[j])) continue;
-        var part = stack[j].closest('.stat-pill, .views-badge');
+        var part = stack[j].closest('.stat-pill, .views-badge, .sound-btn');
         if (part && first.contains(part)) return part;
       }
     }
@@ -1512,7 +1520,13 @@
     if (act === 'front') { snapshot(els.concat(ancestorsOf(els))); els.forEach(bringFront); status('Brought to the front.'); return; }
     if (act === 'back') { snapshot(els.concat(els.map(function (e) { return e.parentElement; }))); els.forEach(sendBack); status('Sent behind its neighbours.'); return; }
     if (liveOnly(els)) {   // stats pieces
-      if (act === 'delete') { var host = els[0].closest('.frame, .portrait') || els[0].parentElement; els.forEach(function (el) { el.remove(); }); sel = []; paintSel(); markStyle(host); status('Removed. Save to keep it.', 'warn'); return; }
+      if (act === 'delete') {
+        var host = els[0].closest('.frame, .portrait') || els[0].parentElement;
+        snapshot(els);
+        els.forEach(function (el) { if (el.matches('.sound-btn')) el.style.display = 'none'; else el.remove(); });   // the sound button is only hidden (Undo brings it back)
+        sel = []; paintSel(); markStyle(host); status('Removed. Save to keep it.', 'warn'); return;
+      }
+      if (act === 'dup' && els.some(function (el) { return el.matches('.sound-btn'); })) { status('A video has one sound button.'); return; }
       if (act === 'dup') { var outL = els.map(function (el) { var c = el.cloneNode(true); c.classList.remove('m07-sel'); el.after(c); return c; }); sel = outL; paintSel(); markStyle(outL[0]); status('Duplicated. Save to keep it.', 'warn'); return; }
       status('Those pieces live inside their video box. Use Bigger box to move the box.'); return;
     }
@@ -1777,6 +1791,13 @@
   /* ------------------------------------------------------------------ save */
   function cleanInner(el) {
     var c = el.cloneNode(true);
+    // the sound button is made by the site's script: keep its Layout changes on the video instead
+    c.querySelectorAll('.sound-btn').forEach(function (b) {
+      var v = b.parentElement && b.parentElement.querySelector('video.slot-media:not(.pl-buf)');
+      if (!v) return;
+      var st = b.getAttribute('style');
+      if (st && st.trim()) v.setAttribute('data-sound-style', st); else v.removeAttribute('data-sound-style');
+    });
     c.querySelectorAll('.m07-ui, .bub, .sound-btn, .pl-buf').forEach(function (n) { n.remove(); });
     c.querySelectorAll('video[data-playlist]').forEach(function (v) {
       var first = v.getAttribute('data-playlist').split('|')[0];
