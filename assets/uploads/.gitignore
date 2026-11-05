@@ -1,0 +1,10 @@
+# Written by the site editor: only uploads used on a page are published.
+# Everything else stays on your computer (in the editor's Media).
+*
+!.gitignore
+!drone-hor-web-final.mp4
+!img-5240.jpg
+!instagram-75881449997-ddrund2v5fe.mp4
+!instagram-75881449997-ddrund2v5fe.poster.jpg
+!tiktok-6716658932641678342-7635431665103359262-cut.mp4
+!tiktok-6716658932641678342-7635431665103359262-cut.poster.jpg
