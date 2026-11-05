@@ -127,38 +127,97 @@
     }
   }
 
-  /* ---- Videos placed in frames: play only while on screen, sound button for clips with audio ---- */
-  var vids = document.querySelectorAll('video.slot-media');
-  if (vids.length) {
+  /* ---- Videos placed in frames ----
+   * Play only while on screen; sound button for clips with audio.
+   * A frame can hold several clips (data-playlist="a.mp4|b.mp4|c.mp4"): they play back to back
+   * with no gap. Two video players take turns: while one plays, the next clip is loaded and
+   * sitting on its first frame underneath, and they swap in the same screen refresh.
+   */
+  var vids = document.querySelectorAll('video.slot-media:not(.pl-buf)');
+  {
     var ICON_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="m23 9-6 6M17 9l6 6"/></svg>';
     var ICON_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>';
-    vids.forEach(function (v) {
+    var players = [];
+    var quiet = function (pr) { if (pr && pr.catch) pr.catch(function () {}); };
+    var prime = function (el) {   // get the first frame decoded (iOS won't preload without a play)
+      el.muted = true;
+      var done = function () { el.pause(); try { el.currentTime = 0; } catch (e) {} };
+      var pr = el.play();
+      if (pr && pr.then) pr.then(done, function () {}); else done();
+    };
+    var Player = function (v) {
+      var self = this;
+      this.v = v; this.box = v.parentElement; this.active = v; this.buf = null; this.muted = true; this.inView = false;
+      this.list = (v.getAttribute('data-playlist') || '').split('|').filter(Boolean);
+      this.i = 0;
       v.muted = true;
-      if (!v.hasAttribute('data-audio')) return;
-      var box = v.parentElement;
+      if (this.list.length > 1) {
+        v.loop = false; v.removeAttribute('loop');
+        if (v.getAttribute('src') !== this.list[0]) v.setAttribute('src', this.list[0]);
+        var b = document.createElement('video');
+        b.className = 'slot-media pl-buf pl-hide';
+        b.setAttribute('aria-hidden', 'true');
+        b.muted = true; b.playsInline = true; b.setAttribute('playsinline', ''); b.setAttribute('muted', ''); b.preload = 'auto';
+        b.src = this.list[1];
+        v.parentNode.insertBefore(b, v.nextSibling);
+        this.buf = b;
+        prime(b);
+        [v, b].forEach(function (el) { el.addEventListener('ended', function () { if (el === self.active) self.next(); }); });
+      }
+    };
+    Player.prototype.play = function () { this.inView = true; this.active.muted = this.muted; quiet(this.active.play()); };
+    Player.prototype.pause = function () { this.inView = false; this.active.pause(); };
+    Player.prototype.setMuted = function (m) { this.muted = m; this.active.muted = m; if (!m) quiet(this.active.play()); };
+    Player.prototype.next = function () {
+      var self = this, cur = this.active, nb = this.buf;
+      var go = function () {
+        nb.muted = self.muted;
+        if (self.inView) quiet(nb.play());
+        nb.classList.remove('pl-hide');      // same frame: next clip shows, current hides
+        cur.classList.add('pl-hide');
+        cur.muted = true;
+        self.active = nb; self.buf = cur;
+        self.i = (self.i + 1) % self.list.length;
+        cur.src = self.list[(self.i + 1) % self.list.length];   // load the one after, underneath
+        prime(cur);
+      };
+      if (nb.readyState >= 2) go();
+      else nb.addEventListener('loadeddata', go, { once: true });   // until it's ready the last frame stays up (never black)
+    };
+    var vio = 'IntersectionObserver' in window ? new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        var pl = en.target.__player;
+        if (!pl) return;
+        if (en.isIntersecting) { if (!reduce) pl.play(); }
+        else pl.pause();
+      });
+    }, { threshold: 0.15 }) : null;
+    var setupVideo = function (v) {
+      var pl = new Player(v);
+      players.push(pl);
+      v.__player = pl;
+      if (vio) vio.observe(v); else if (!reduce) pl.play();
+      if (!v.hasAttribute('data-audio')) return pl;
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'sound-btn'; b.setAttribute('aria-label', 'Turn sound on'); b.innerHTML = ICON_OFF;
       b.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
-        var on = v.muted;
-        document.querySelectorAll('video.slot-media').forEach(function (o) { if (o !== v) { o.muted = true; var ob = o.parentElement.querySelector('.sound-btn'); if (ob) { ob.innerHTML = ICON_OFF; ob.setAttribute('aria-label', 'Turn sound on'); } } });
-        v.muted = !on;
-        if (on) { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); }
+        var on = pl.muted;
+        players.forEach(function (o) {
+          if (o === pl || !o.v.isConnected) return;
+          o.setMuted(true);
+          var ob = o.box.querySelector('.sound-btn'); if (ob) { ob.innerHTML = ICON_OFF; ob.setAttribute('aria-label', 'Turn sound on'); }
+        });
+        pl.setMuted(!on);
         b.innerHTML = on ? ICON_ON : ICON_OFF;
         b.setAttribute('aria-label', on ? 'Turn sound off' : 'Turn sound on');
       });
-      box.appendChild(b);
-    });
-    if ('IntersectionObserver' in window) {
-      var vio = new IntersectionObserver(function (entries) {
-        entries.forEach(function (en) {
-          var v = en.target;
-          if (en.isIntersecting) { if (!reduce) { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } }
-          else v.pause();
-        });
-      }, { threshold: 0.15 });
-      vids.forEach(function (v) { vio.observe(v); });
-    }
+      pl.box.appendChild(b);
+      return pl;
+    };
+    vids.forEach(setupVideo);
+    window.__m07Players = players;
+    window.__m07SetupVideo = setupVideo;   // used by the local editor after placing clips
   }
 
   /* ---- Touch screens: play the hover effects as things scroll through the middle of the screen ---- */
