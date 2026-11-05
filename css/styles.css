@@ -100,7 +100,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .link-arrow:hover{color:var(--teal);border-color:var(--teal)}
 
 /* ---------- hero (home) ---------- */
-.hero{position:relative;padding-block:clamp(48px,8vw,104px) clamp(56px,8vw,96px)}
+.hero{position:relative;padding-block:clamp(40px,6vw,80px) clamp(32px,4vw,56px)}
 .hero .wrap{display:grid;grid-template-columns:.9fr 1.2fr;gap:clamp(28px,4vw,56px);align-items:center}
 .hero-copy{min-width:0;position:relative;z-index:2}
 .rec{display:inline-flex;align-items:center;gap:.7em;color:var(--muted)}
@@ -212,7 +212,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @keyframes bob{50%{transform:translateY(14px)}}
 
 /* ---------- marquee bands ---------- */
-.bands{position:relative;padding-block:56px;overflow:clip}
+.bands{position:relative;padding-block:clamp(24px,3vw,40px);overflow:clip}
 .band{position:relative;white-space:nowrap;overflow:hidden;padding-block:14px;font-family:var(--f-display);font-weight:800;font-size:clamp(1.3rem,3vw,2.2rem);text-transform:uppercase;letter-spacing:-.01em}
 .band-a{background:var(--pink);color:var(--ink);transform:rotate(-3deg) scale(1.06);z-index:2}
 .band-b{background:var(--fg);color:var(--ink);transform:rotate(2deg) scale(1.06);margin-top:-18px}
@@ -228,8 +228,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 
 /* ---------- section scaffolding ---------- */
 section{position:relative}
-.sec{padding-block:clamp(72px,10vw,140px)}
-.sec-tight{padding-block:clamp(56px,7vw,96px)}
+.sec{padding-block:clamp(40px,5vw,72px)}
+.sec-tight{padding-block:clamp(32px,4vw,56px)}
 .sec-head{display:grid;grid-template-columns:auto 1fr;gap:12px 28px;align-items:end;margin-bottom:clamp(40px,6vw,72px)}
 .sec-head .mono,.eyebrow{color:var(--muted);display:flex;align-items:center;gap:.8em}
 .sec-head .mono{grid-column:1/-1}
@@ -238,7 +238,7 @@ section{position:relative}
 .sec-head p{max-width:42ch;color:var(--muted);justify-self:end;align-self:end}
 
 /* ---------- page hero (inner pages) ---------- */
-.page-hero{position:relative;padding-block:clamp(64px,9vw,128px) clamp(40px,6vw,72px);border-bottom:1px solid var(--line);overflow:clip}
+.page-hero{position:relative;padding-block:clamp(48px,6vw,88px) clamp(32px,4vw,56px);border-bottom:1px solid var(--line);overflow:clip}
 .page-hero .wrap{position:relative;z-index:1}
 .page-hero h1{margin-top:20px;font-size:clamp(3rem,9vw,7.5rem);font-weight:800;max-width:12ch}
 .page-hero h1 .serif{color:var(--pink);font-size:1.05em}
@@ -312,7 +312,7 @@ section{position:relative}
 .stat span{display:block;margin-top:10px;font-family:var(--f-mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 
 /* ---------- why us (white slanted band) ---------- */
-.why{background:var(--fg);color:var(--ink);clip-path:polygon(0 4vw,100% 0,100% calc(100% - 4vw),0 100%);padding-block:clamp(110px,14vw,190px)}
+.why{background:var(--fg);color:var(--ink);clip-path:polygon(0 4vw,100% 0,100% calc(100% - 4vw),0 100%);padding-block:clamp(64px,calc(4vw + 48px),110px)}
 .why .mono,.why .eyebrow{color:#4c4858}
 .why h2{font-size:clamp(2.3rem,6.2vw,5.4rem);font-weight:800;max-width:17ch;margin-top:18px}
 .why h2 .serif{color:var(--purple)}
@@ -402,7 +402,7 @@ section{position:relative}
 .step p{margin-top:10px;color:var(--muted);font-size:.98rem;max-width:30ch}
 
 /* ---------- CTA band ---------- */
-.cta-band{position:relative;overflow:clip;padding-block:clamp(80px,10vw,140px);border-top:1px solid var(--line)}
+.cta-band{position:relative;overflow:clip;padding-block:clamp(48px,6vw,88px);border-top:1px solid var(--line)}
 .cta-band .wrap{display:grid;grid-template-columns:1fr auto;gap:32px 48px;align-items:end;position:relative;z-index:1}
 .cta-band h2{font-size:clamp(2.6rem,7vw,6rem);font-weight:800;max-width:13ch}
 .cta-band h2 .stop{display:inline-block;background:var(--pink);color:var(--ink);padding:0 .14em;transform:rotate(2deg)}
@@ -569,7 +569,7 @@ section{position:relative}
 .notfound .hero-cta{justify-content:center}
 
 /* ---------- footer ---------- */
-footer{padding-block:clamp(64px,8vw,110px) 40px;border-top:1px solid var(--line);overflow:clip}
+footer{padding-block:clamp(48px,6vw,80px) 32px;border-top:1px solid var(--line);overflow:clip}
 .foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.3fr;gap:36px 40px}
 .foot-grid > *{min-width:0}
 .foot-grid h4{font-family:var(--f-mono);font-weight:500;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:16px}
@@ -578,7 +578,7 @@ footer{padding-block:clamp(64px,8vw,110px) 40px;border-top:1px solid var(--line)
 .foot-grid a:hover{color:var(--teal)}
 .foot-tag{color:var(--muted);max-width:30ch;margin-top:16px}
 .foot-contact a{overflow-wrap:anywhere}
-.foot-logo{font-size:clamp(4rem,17vw,15rem);line-height:.85;display:flex;align-items:flex-start;gap:0;justify-content:center;margin-top:clamp(56px,7vw,96px);text-decoration:none;color:var(--fg);width:max-content;max-width:100%;margin-inline:auto}
+.foot-logo{font-size:clamp(4rem,17vw,15rem);line-height:.85;display:flex;align-items:flex-start;gap:0;justify-content:center;margin-top:clamp(28px,4vw,56px);text-decoration:none;color:var(--fg);width:max-content;max-width:100%;margin-inline:auto}
 .foot-row{margin-top:40px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;color:var(--muted)}
 .foot-row a{color:var(--muted)}
 
@@ -977,4 +977,10 @@ div.stat-overlay{position:absolute;right:4%;top:50%;transform:translateY(-50%);z
   [style*="--m-ar"]{height:auto!important;aspect-ratio:var(--m-ar)!important}
   [style*="--m-pt"]{padding-top:min(var(--m-pt),14vw)!important}[style*="--m-pb"]{padding-bottom:min(var(--m-pb),14vw)!important}
   [style*="--m-pl"]{padding-left:min(var(--m-pl),6vw)!important}[style*="--m-pr"]{padding-right:min(var(--m-pr),6vw)!important}
+}
+
+/* video frames are size containers, so stats / views / sound button positions (in cqw / cqh) scale with the frame */
+.frame,.portrait{container-type:size}
+@media (max-width:700px){
+  .frame [style*="--m-x"],.frame [style*="--m-y"],.portrait [style*="--m-x"],.portrait [style*="--m-y"]{translate:var(--m-x,0px) var(--m-y,0px)}
 }

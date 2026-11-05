@@ -459,6 +459,75 @@
   }
   var PLAY_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15L19.5 12 7 4.5z" fill="currentColor"/></svg>';
   function removeStats(slot) { slot.querySelectorAll('.stat-overlay, .views-badge').forEach(function (n) { n.remove(); }); }
+  /* ---- stats layout per frame shape (circle / vertical / horizontal / square)
+   * Learned from the frames you've arranged: every save remembers where the likes, comments,
+   * shares and views sit on each shape. New videos with stats get the same layout, scaled to the frame. */
+  var STAT_TPL = {};
+  fetch('/__editor/stat-styles', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) { STAT_TPL = d || {}; }).catch(function () {});
+  function shapeOf(el) {
+    var cs = getComputedStyle(el), w = el.offsetWidth || 1, hh = el.offsetHeight || 1, rad = cs.borderTopLeftRadius || '0';
+    var r = /%$/.test(rad) ? parseFloat(rad) / 100 * w : parseFloat(rad) || 0;
+    if (r >= Math.min(w, hh) * 0.4) return 'circle';
+    return hh > w * 1.08 ? 'vertical' : w > hh * 1.08 ? 'horizontal' : 'square';
+  }
+  // where a piece sits inside its frame, in the frame's own (unrotated) pixels
+  var PIECES = '.stat-pill[data-k], .views-badge';
+  function pieceKey(n) { return n.classList.contains('views-badge') ? 'views' : n.getAttribute('data-k'); }
+  function localCenter(n, frame) {
+    var fr = frame.getBoundingClientRect(), t = screenXform(frame, true), r = n.getBoundingClientRect();
+    var px = r.left + r.width / 2 - (fr.left + fr.width / 2), py = r.top + r.height / 2 - (fr.top + fr.height / 2);
+    var c = Math.cos(-t.a), sn = Math.sin(-t.a), k = t.s || 1;
+    return { x: (px * c - py * sn) / k + frame.offsetWidth / 2, y: (px * sn + py * c) / k + frame.offsetHeight / 2 };
+  }
+  function pieceScale(n, frame) { return (screenXform(n, true).s || 1) / (screenXform(frame, true).s || 1); }
+  function exampleFrom(slot) {
+    var list = slot.querySelectorAll(PIECES);
+    if (!list.length) return null;
+    var W = slot.offsetWidth, H = slot.offsetHeight, ex = { shape: shapeOf(slot), w: W, h: H, parts: {} };
+    list.forEach(function (n) {
+      if (getComputedStyle(n).display === 'none' || !n.offsetWidth) return;
+      var c = localCenter(n, slot);
+      ex.parts[pieceKey(n)] = { fx: c.x / W, fy: c.y / H, rw: n.offsetWidth * pieceScale(n, slot) / W, sc: pieceScale(n, slot) };
+    });
+    return Object.keys(ex.parts).length ? ex : null;
+  }
+  function applyStatLayout(slot) {
+    var list = (STAT_TPL[shapeOf(slot)] || []).filter(function (e) { return e && e.parts; });
+    if (!list.length) return;
+    var W = slot.offsetWidth || 1, H = slot.offsetHeight || 1, best = null, bd = Infinity;
+    list.forEach(function (ex) {   // the arranged frame most like this one
+      var d = Math.abs(Math.log((W / H) / (ex.w / ex.h))) * 2 + Math.abs(Math.log((W * H) / (ex.w * ex.h)));
+      if (d < bd) { bd = d; best = ex; }
+    });
+    // first take off what you removed on that shape (the group re-centres), then place the rest
+    slot.querySelectorAll(PIECES).forEach(function (n) { if (!best.parts[pieceKey(n)]) n.remove(); });
+    slot.querySelectorAll(PIECES).forEach(function (n) {
+      var part = best.parts[pieceKey(n)];
+      ['--m-x', '--m-y', '--m-s'].forEach(function (k) { n.style.removeProperty(k); });
+      var outer = pieceScale(n, slot) || 1;   // e.g. the whole group was resized
+      // same size relative to the frame as on the frame you arranged (numbers of any length)
+      var sc = part.sc ? part.sc * Math.sqrt((W * H) / (best.w * best.h)) / outer : part.rw * W / ((n.offsetWidth || 1) * outer);
+      sc = Math.max(0.3, Math.min(3, sc));
+      var v = vars(n); v.s = sc; v.x = 0; v.y = 0; setVars(n, v);
+      var c = localCenter(n, slot);
+      var tx = part.fx * W, ty = part.fy * H;
+      // keep it inside the frame (longer numbers are wider than on the frame you arranged)
+      var hw = n.offsetWidth * sc * outer / 2 + 6, hh2 = n.offsetHeight * sc * outer / 2 + 6;
+      if (part.fx > 0 && part.fx < 1) tx = Math.max(hw, Math.min(W - hw, tx));
+      if (part.fy > 0 && part.fy < 1) ty = Math.max(hh2, Math.min(H - hh2, ty));
+      v.x = (tx - c.x) / outer; v.y = (ty - c.y) / outer; setVars(n, v);
+    });
+    var ov = slot.querySelector('.stat-overlay');
+    if (ov && !ov.querySelector('.stat-pill')) ov.remove();
+  }
+  window.__m07LearnStats = function () { learnStatLayouts(); };
+  function learnStatLayouts() {
+    var exs = [];
+    document.querySelectorAll('.m07-slot').forEach(function (slot) { var ex = exampleFrom(slot); if (ex && ex.w > 20) exs.push(ex); });
+    if (!exs.length) return;
+    fetch('/__editor/stat-styles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ examples: exs }) })
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && !d.error) STAT_TPL = d; }).catch(function () {});
+  }
   function statsData(info) {
     var st = (info && info.stats) || {}, d = {};
     ['likes', 'comments', 'shares'].forEach(function (k) { if (st[k] != null) d[k] = st[k]; });
@@ -530,7 +599,7 @@
       var sd = statsData(info), hasSd = Object.keys(sd).some(function (k) { return k !== 'platform'; });
       if (hasSd || vtxt) { media.setAttribute('data-stats', JSON.stringify(sd)); media.setAttribute('data-stats-alt', statsAlt(info)); if (vtxt) media.setAttribute('data-views', vtxt); }
       if (media.tagName === 'IMG') media.setAttribute('alt', (info.title || ('Post on ' + info.platform)).slice(0, 120));
-      if ((hasSd || vtxt) && withStats[src]) addStats(slot, sd, statsAlt(info), vtxt);
+      if ((hasSd || vtxt) && withStats[src] !== false) { addStats(slot, sd, statsAlt(info), vtxt); applyStatLayout(slot); }
       if (info.link) {
         var a = document.createElement('a');
         a.className = 'slot-link'; a.setAttribute('href', info.link); a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener');
@@ -639,7 +708,7 @@
     if (b.dataset.slot === 'hud') { slot.classList.toggle('no-hud'); markDirty(slot, 'class'); }
     if (b.dataset.slot === 'stats') {
       var ov = slot.querySelector('.stat-overlay, .views-badge'), sm = slot.querySelector('.slot-media[data-stats]');
-      if (ov) removeStats(slot); else if (sm) addStats(slot, readStats(sm), sm.getAttribute('data-stats-alt'), sm.getAttribute('data-views'));
+      if (ov) removeStats(slot); else if (sm) { addStats(slot, readStats(sm), sm.getAttribute('data-stats-alt'), sm.getAttribute('data-views')); applyStatLayout(slot); }
       markDirty(slot, 'html'); showSlotBar(slot);
     }
     if (b.dataset.slot === 'remove') {
@@ -739,7 +808,7 @@
         var stories = m && m.link && /\/(stories|s)\//.test(m.link);
         card += '<div class="m07-meta">' +
           (m ? '<small>' + esc(statsAlt(m) || 'No stats yet') + '</small>' : '') +
-          (hasStats ? '<label><input type="checkbox" data-stats-for="' + esc(f.src) + '"' + (withStats[f.src] ? ' checked' : '') + '> Include stat overlay</label>' : '') +
+          (hasStats ? '<label><input type="checkbox" data-stats-for="' + esc(f.src) + '"' + (withStats[f.src] !== false ? ' checked' : '') + '> Include stat overlay</label>' : '') +
           '<span class="m07-row2">' +
             (m && m.link && !stories ? '<button type="button" data-refresh="' + esc(f.base) + '">Refresh stats</button>' : '') +
             (f.video ? '<button type="button" data-trimopen="' + esc(f.name) + '" title="Cut this video to the length you need">Trim</button>' : '') +
@@ -868,7 +937,7 @@
   });
   drawer.addEventListener('change', function (e) {
     var t = e.target.closest('[data-stats-for]');
-    if (t) withStats[t.getAttribute('data-stats-for')] = t.checked;
+    if (t) withStats[t.getAttribute('data-stats-for')] = !!t.checked;
   });
   drawer.addEventListener('dragstart', function (e) {
     var t = e.target.closest('.m07-thumb');
@@ -991,17 +1060,39 @@
     '</span>');
   var guideX = h('div', { class: 'm07-ui m07-guide m07-guide-x', hidden: '' }), guideY = h('div', { class: 'm07-ui m07-guide m07-guide-y', hidden: '' });
 
+  // Pieces inside a video frame (likes, comments, shares, views, sound button) are placed in
+  // frame units (cqw / cqh, % of the frame), so they stay in the same spot when the frame is
+  // bigger or smaller (other screen sizes, phones). Everything else uses px.
+  function cqHost(el) { return el.matches && el.matches('.stat-pill, .views-badge, .stat-overlay, .sound-btn') ? el.closest('.frame, .portrait') : null; }
+  function readLen(el, k, host, dim) {
+    var raw = el.style.getPropertyValue(k).trim(), n = parseFloat(raw) || 0;
+    if (host && /cq[wh]$/.test(raw)) return n * (/cqw$/.test(raw) ? host.offsetWidth : host.offsetHeight) / 100;
+    return n;
+  }
   function vars(el) {
-    var s = el.style;
-    return { x: parseFloat(s.getPropertyValue('--m-x')) || 0, y: parseFloat(s.getPropertyValue('--m-y')) || 0,
+    var s = el.style, host = cqHost(el);
+    return { x: readLen(el, '--m-x', host), y: readLen(el, '--m-y', host),
       r: parseFloat(s.getPropertyValue('--m-r')) || 0, s: parseFloat(s.getPropertyValue('--m-s')) || 1, z: parseFloat(s.getPropertyValue('--m-z')) || 0 };
   }
   function setVars(el, v) {
-    var s = el.style;
-    function put(k, val, def, unit) { if (Math.abs(val - def) < 1e-6) s.removeProperty(k); else s.setProperty(k, (Math.round(val * 100) / 100) + unit); }
-    put('--m-x', v.x, 0, 'px'); put('--m-y', v.y, 0, 'px'); put('--m-r', v.r, 0, 'deg'); put('--m-s', v.s, 1, ''); put('--m-z', v.z, 0, '');
+    var s = el.style, host = cqHost(el);
+    function put(k, val, def, unit, digits) { if (Math.abs(val - def) < 1e-6) s.removeProperty(k); else s.setProperty(k, (Math.round(val * digits) / digits) + unit); }
+    if (host && host.offsetWidth && host.offsetHeight) {
+      put('--m-x', v.x / host.offsetWidth * 100, 0, 'cqw', 1000); put('--m-y', v.y / host.offsetHeight * 100, 0, 'cqh', 1000);
+    } else { put('--m-x', v.x, 0, 'px', 100); put('--m-y', v.y, 0, 'px', 100); }
+    put('--m-r', v.r, 0, 'deg', 100); put('--m-s', v.s, 1, '', 1000); put('--m-z', v.z, 0, '', 1);
     if (!el.getAttribute('style') || !el.getAttribute('style').trim()) el.removeAttribute('style');
   }
+  // turn old px positions of frame pieces into frame units (keeps them where they are at this screen size)
+  window.__m07NormalizeParts = function () {
+    var n = 0;
+    document.querySelectorAll('.stat-pill, .views-badge, .stat-overlay, .sound-btn').forEach(function (el) {
+      var st = el.getAttribute('style') || '';
+      if (!/--m-[xy]\s*:\s*-?[\d.]+px/.test(st) || !cqHost(el)) return;
+      setVars(el, vars(el)); markStyle(el); n++;
+    });
+    return n;
+  };
   // box size and the space inside its edges (side handles)
   var SIZE_BOX = '.frame, .portrait, img, video, iframe, svg, canvas, .deco, .big-o, .svc-shot, .stat-pill, .views-badge, .stat-overlay, .sound-btn';
   function sizeDriven(el) { return el.matches(SIZE_BOX) || /^(absolute|fixed)$/.test(getComputedStyle(el).position); }
@@ -1246,6 +1337,10 @@
     var p = primary(); if (!p) return;
     var box = p.parentElement; if (!box) return;
     var pr = p.getBoundingClientRect(), br = box.getBoundingClientRect();
+    // centering in the whole page (or anything taller than the screen) top-to-bottom would throw it far away
+    if (axis === 'y' && (/^(MAIN|BODY|HTML)$/.test(box.tagName) || br.height > window.innerHeight * 1.5)) {
+      status('The box around this one is taller than the screen, so top-to-bottom centering is off. Use Bigger box or drag it.', 'warn'); return;
+    }
     var d = axis === 'x' ? (br.left + br.width / 2) - (pr.left + pr.width / 2) : (br.top + br.height / 2) - (pr.top + pr.height / 2);
     snapshot(sel.slice());
     sel.forEach(function (el) {
@@ -1882,7 +1977,8 @@
       var st = b.getAttribute('style');
       if (st && st.trim()) v.setAttribute('data-sound-style', st); else v.removeAttribute('data-sound-style');
     });
-    c.querySelectorAll('.m07-ui, .bub, .sound-btn, .pl-buf').forEach(function (n) { n.remove(); });
+    c.querySelectorAll('.m07-ui, .bub, .sound-btn, .pl-buf, .mq-clone').forEach(function (n) { n.remove(); });
+    c.querySelectorAll('.track[style]').forEach(function (n) { n.style.removeProperty('animation-duration'); if (!n.getAttribute('style').trim()) n.removeAttribute('style'); });
     c.querySelectorAll('video[data-playlist]').forEach(function (v) {
       var first = v.getAttribute('data-playlist').split('|')[0];
       if (first) v.setAttribute('src', first);
@@ -1936,6 +2032,7 @@
         if (!d.ok) throw new Error(d.error || 'Save failed');
         savedCount = countAtSave;
         refreshStatus();
+        learnStatLayouts();
         if (changeCount === savedCount) {
           var t = new Date();
           status('Saved to ' + PAGE + ' at ' + t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));

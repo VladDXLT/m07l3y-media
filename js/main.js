@@ -113,6 +113,33 @@
     }
   }
 
+  /* ---- Scrolling strips: always full. The track slides left by half its width, so it is two
+   * identical halves; each half must be wider than the strip or a blank gap shows when it loops. */
+  var fillBands = function () {
+    document.querySelectorAll('.band .track').forEach(function (track) {
+      track.querySelectorAll('.mq-clone').forEach(function (n) { n.remove(); });
+      var spans = track.querySelectorAll(':scope > span');
+      if (!spans.length) return;
+      var one = spans[0], w = one.getBoundingClientRect().width;
+      if (!w) return;
+      var band = track.closest('.band');
+      var need = Math.max(band.offsetWidth, window.innerWidth) * 1.25 + 200;   // extra for strips you tilted or moved
+      var perHalf = Math.max(1, Math.ceil(need / w)), have = spans.length;
+      // same speed as before: each half was one copy, so the loop takes perHalf times longer
+      if (track.__base == null) track.__base = parseFloat(getComputedStyle(track).animationDuration) || 32;
+      if (perHalf > 1) track.style.animationDuration = (track.__base * perHalf) + 's'; else track.style.removeProperty('animation-duration');
+      for (var i = have; i < perHalf * 2; i++) {
+        var c = one.cloneNode(true);
+        c.classList.add('mq-clone'); c.setAttribute('aria-hidden', 'true');
+        track.appendChild(c);
+      }
+    });
+  };
+  fillBands();
+  var bandTimer;
+  window.addEventListener('resize', function () { clearTimeout(bandTimer); bandTimer = setTimeout(fillBands, 200); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fillBands);
+
   /* ---- Reveal on scroll (only for things below the fold at load) ---- */
   if (!reduce && 'IntersectionObserver' in window) {
     var items = document.querySelectorAll('.reveal');
@@ -217,7 +244,23 @@
       pl.box.appendChild(b);
       return pl;
     };
-    vids.forEach(setupVideo);
+    // phones play the lighter copies in assets/uploads/phone/ (when there is one); computers keep full quality
+    var isPhone = window.matchMedia && matchMedia('(max-width: 700px)').matches && !document.querySelector('script[data-m07-editor]');   // never inside the editor
+    if (isPhone && vids.length && window.fetch) {
+      vids.forEach(function (v) { v.__src = v.getAttribute('src'); v.removeAttribute('src'); v.load(); });   // don't start the big file
+      fetch('assets/uploads/phone/list.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }).then(function (list) {
+        var map = {};
+        (list || []).forEach(function (e) { if (e && e.src && e.phone) map[e.src] = e.phone; });
+        vids.forEach(function (v) {
+          var pl = v.getAttribute('data-playlist');
+          if (pl) v.setAttribute('data-playlist', pl.split('|').map(function (s) { return map[s] || s; }).join('|'));
+          var src = map[v.__src] || v.__src;
+          v.setAttribute('src', src);
+          v.addEventListener('error', function back() { if (v.getAttribute('src') !== v.__src) { v.removeEventListener('error', back); v.setAttribute('src', v.__src); v.load(); } });
+          setupVideo(v);
+        });
+      });
+    } else vids.forEach(setupVideo);
     window.__m07Players = players;
     window.__m07SetupVideo = setupVideo;   // used by the local editor after placing clips
   }

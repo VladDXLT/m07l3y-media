@@ -15,7 +15,6 @@ Plain HTML, CSS and JavaScript. No build step, no dependencies. Works on GitHub 
 | `social.html` | Social media management, monthly content, UGC |
 | `collabs.html` | Creator collabs: sponsored posts and features on our channels |
 | `events.html` | Events & shows: promoters, venues, holiday shows, drone-only crew |
-| `work.html` | Work / portfolio with category filters |
 | `about.html` | About, what "motley" means, why us |
 | `team.html` | Team (founder + template for new members) |
 | `faq.html` | FAQ (with FAQ schema for Google) |
@@ -55,6 +54,7 @@ Shared files: `css/styles.css` (all styles + brand tokens), `js/main.js` (menu, 
    - Hover effects and animations pause while Layout is on, so things hold still. On phones, moved boxes go back to their normal spot (rotation, smaller sizes and spacing stay), so the phone version never breaks.
 4c. **Undo / Redo** (Cmd+Z / Cmd+Shift+Z, or the toolbar buttons) undo the last change of any kind, in order: text, media, stats, moves, sizes, deletes, pastes. Moves snap back instantly; bigger changes reload the page where you were. It keeps working after reloads until you close the tab.
 5. Changes **save automatically** a second after you make them (Cmd+S / Save still works). Changes are written straight into the .html files. Uploads go to `assets/uploads/`. Backups of every save are kept in `.editor-backups/` (not uploaded to GitHub).
+   **Phones:** big videos used on a page (over 12 MB) automatically get a lighter 720p copy in `assets/uploads/phone/` (made in the background by the editor; watch the Terminal window). Phones play those, computers keep full quality.
 6. Only uploads that are used on a page get published (the editor keeps `assets/uploads/.gitignore` up to date); everything else stays in Media on your computer. Publish: open GitHub Desktop, write a short summary, click **Commit to main**, then **Push origin**.
 
 Use the page menu in the toolbar to switch pages. Click **Editing** to switch to Preview, where links and buttons work normally. The editor only runs on your computer; the public site never loads it.

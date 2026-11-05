@@ -480,7 +480,7 @@ async function handleEditorApi(req, res, url) {
     return send(res, 200, await fsp.readFile(file), TYPES[path.extname(file)]);
   }
   if (req.method === 'GET' && route === 'pages') {
-    const pages = (await fsp.readdir(ROOT)).filter(f => f.endsWith('.html')).sort();
+    const pages = (await fsp.readdir(ROOT)).filter(f => f.endsWith('.html') && !/http-equiv="refresh"/i.test(fs.readFileSync(path.join(ROOT, f), 'utf8').slice(0, 2000))).sort();   // skip redirect pages (old work.html)
     return json(res, 200, { pages });
   }
   if (req.method === 'GET' && route === 'raw') {
@@ -519,6 +519,28 @@ async function handleEditorApi(req, res, url) {
     await fsp.rename(path.join(BACKUPS, bak), path.join(undone, bak));
     console.log(`  undo    ${path.basename(file)}`);
     return json(res, 200, { ok: true });
+  }
+  // where the stats sit on each frame shape (learned from your saved pages), see applyStatLayout in editor.js
+  if (route === 'stat-styles') {
+    const file = path.join(EDITOR_DIR, 'stat-styles.json');
+    let data = {}; try { data = JSON.parse(await fsp.readFile(file, 'utf8')); } catch (e) {}
+    if (req.method === 'POST') {
+      const { examples } = JSON.parse((await readBody(req)).toString('utf8'));
+      for (const ex of Array.isArray(examples) ? examples : []) {
+        if (!ex || !/^(circle|vertical|horizontal|square)$/.test(ex.shape) || !(ex.w > 0 && ex.h > 0)) continue;
+        const clean = { w: Math.round(ex.w), h: Math.round(ex.h), parts: {} };
+        for (const [k, v] of Object.entries(ex.parts || {})) {
+          if (!/^(likes|comments|shares|on|views)$/.test(k) || !v) continue;
+          const num = x => (typeof x === 'number' && isFinite(x) ? Math.round(x * 10000) / 10000 : null);
+          if (num(v.fx) != null && num(v.fy) != null && num(v.rw) != null) clean.parts[k] = { fx: num(v.fx), fy: num(v.fy), rw: num(v.rw), sc: num(v.sc) };
+        }
+        if (!Object.keys(clean.parts).length) continue;
+        const list = (data[ex.shape] || []).filter(e => e.parts && (Math.abs(e.w - clean.w) > 8 || Math.abs(e.h - clean.h) > 8));
+        list.unshift(clean); data[ex.shape] = list.slice(0, 8);
+      }
+      await fsp.writeFile(file, JSON.stringify(data, null, 1));
+    }
+    return json(res, 200, data);
   }
   if (req.method === 'GET' && route === 'tools') {
     let ig = null;
@@ -782,6 +804,51 @@ function gitBin() {
   const desk = '/Applications/GitHub Desktop.app/Contents/Resources/app/git/bin/git';   // the git inside GitHub Desktop
   return fs.existsSync(desk) ? desk : null;
 }
+/* Phone versions: big videos used on a page get a lighter copy in assets/uploads/phone/ (720p, ~2 Mbps).
+ * js/main.js plays those on phones only (list.json says which exist); computers keep the full quality file. */
+const PHONE_DIR = path.join(UPLOADS, 'phone');
+const PHONE_MIN = 12 * 1048576;   // only for videos bigger than this
+const phoneName = f => f.replace(/\.(mp4|mov|m4v|webm)$/i, '') + '.mp4';
+async function writePhoneList(phone) {
+  await fsp.mkdir(PHONE_DIR, { recursive: true });
+  const file = path.join(PHONE_DIR, 'list.json'), body = JSON.stringify(phone.map(f => ({ src: 'assets/uploads/' + f, phone: 'assets/uploads/phone/' + phoneName(f) })));
+  let old = ''; try { old = await fsp.readFile(file, 'utf8'); } catch (e) {}
+  if (old !== body) await fsp.writeFile(file, body);
+}
+const phoneQueue = new Set(); let phoneBusy = false;
+function makePhoneVersions(list) {
+  const ffmpeg = which('ffmpeg');
+  if (!ffmpeg) return;
+  for (const f of list) {
+    if (!/\.(mp4|mov|m4v|webm)$/i.test(f)) continue;
+    const src = path.join(UPLOADS, f), out = path.join(PHONE_DIR, phoneName(f));
+    let st; try { st = fs.statSync(src); } catch (e) { continue; }
+    if (st.size < PHONE_MIN) continue;
+    if (fs.existsSync(out) && fs.statSync(out).mtimeMs >= st.mtimeMs) continue;
+    phoneQueue.add(f);
+  }
+  runPhoneQueue();
+}
+async function runPhoneQueue() {
+  if (phoneBusy || !phoneQueue.size) return;
+  phoneBusy = true;
+  const ffmpeg = which('ffmpeg');
+  while (phoneQueue.size) {
+    const f = phoneQueue.values().next().value; phoneQueue.delete(f);
+    const src = path.join(UPLOADS, f), out = path.join(PHONE_DIR, phoneName(f)), tmp = out + '.part.mp4';
+    await fsp.mkdir(PHONE_DIR, { recursive: true });
+    console.log(`  phone   making a lighter phone copy of ${f}…`);
+    const r = await run(ffmpeg, ['-y', '-loglevel', 'error', '-i', src, '-map', '0:v:0', '-map', '0:a:0?',
+      '-vf', "scale='if(lt(iw,ih),min(720,iw),-2)':'if(lt(iw,ih),-2,min(720,ih))'", '-c:v', 'libx264', '-preset', 'medium', '-crf', '27',
+      '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', tmp], 30 * 60 * 1000);
+    if (r.code === 0 && fs.existsSync(tmp)) {
+      await fsp.rename(tmp, out);
+      console.log(`  phone   ${phoneName(f)} ready (${(fs.statSync(out).size / 1048576).toFixed(1)} MB instead of ${(fs.statSync(src).size / 1048576).toFixed(1)} MB)`);
+    } else { await fsp.rm(tmp, { force: true }); console.error('  phone   failed for ' + f + ': ' + r.stderr.split('\n').filter(Boolean).pop()); }
+  }
+  phoneBusy = false;
+  syncUploads();   // publish the new phone copies
+}
 let syncTimer = null;
 function syncUploads() { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncUploadsNow().catch(e => console.error('  publish list:', e.message)), 1500); }
 async function syncUploadsNow() {
@@ -791,7 +858,12 @@ async function syncUploadsNow() {
   await scan(ROOT, /\.html$/);
   for (const d of ['css', 'js']) if (fs.existsSync(path.join(ROOT, d))) await scan(path.join(ROOT, d), /\.(css|js)$/);
   const list = [...used].filter(f => fs.existsSync(path.join(UPLOADS, f))).sort();
-  const body = '# Written by the site editor: only uploads used on a page are published.\n# Everything else stays on your computer (in the editor\'s Media).\n*\n!.gitignore\n' + list.map(f => '!' + f).join('\n') + '\n';
+  // lighter copies for phones (made in the background, see makePhoneVersions)
+  makePhoneVersions(list);
+  const phone = list.filter(f => fs.existsSync(path.join(PHONE_DIR, phoneName(f))));
+  await writePhoneList(phone);
+  const body = '# Written by the site editor: only uploads used on a page are published.\n# Everything else stays on your computer (in the editor\'s Media).\n*\n!.gitignore\n' + list.map(f => '!' + f).join('\n') +
+    '\n!phone/\nphone/*\n!phone/list.json\n' + phone.map(f => '!phone/' + phoneName(f)).join('\n') + '\n';
   const gi = path.join(UPLOADS, '.gitignore');
   let old = ''; try { old = await fsp.readFile(gi, 'utf8'); } catch (e) {}
   if (old !== body) await fsp.writeFile(gi, body);
@@ -800,7 +872,7 @@ async function syncUploadsNow() {
   if (!git || !fs.existsSync(path.join(ROOT, '.git'))) return;
   // uploads now used on a page that git isn't tracking (new, or taken out earlier): add them back
   const tracked = new Set((await run(git, ['-C', ROOT, 'ls-files', '--', 'assets/uploads'], 60 * 1000)).stdout.split('\n').filter(Boolean));
-  const add = list.map(f => 'assets/uploads/' + f).filter(f => !tracked.has(f));
+  const add = list.map(f => 'assets/uploads/' + f).concat(phone.map(f => 'assets/uploads/phone/' + phoneName(f)), ['assets/uploads/phone/list.json']).filter(f => !tracked.has(f) && fs.existsSync(path.join(ROOT, f)));
   if (add.length) await run(git, ['-C', ROOT, 'add', '--', ...add], 60 * 1000);
   const r = await run(git, ['-C', ROOT, 'ls-files', '-ci', '--exclude-standard', '--', 'assets/uploads'], 60 * 1000);
   const stale = r.stdout.split('\n').filter(Boolean);
