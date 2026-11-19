@@ -856,7 +856,7 @@ function syncUploads() { clearTimeout(syncTimer); syncTimer = setTimeout(() => s
 import crypto from 'node:crypto';
 async function stampAssets() {
   const ver = {};
-  for (const f of ['css/styles.css', 'js/main.js', 'js/chat.js']) {
+  for (const f of ['css/styles.css', 'js/main.js', 'js/chat.js', 'js/analytics.js']) {
     try { ver[f] = crypto.createHash('sha1').update(await fsp.readFile(path.join(ROOT, f))).digest('hex').slice(0, 8); } catch (e) {}
   }
   for (const page of (await fsp.readdir(ROOT)).filter(f => f.endsWith('.html'))) {

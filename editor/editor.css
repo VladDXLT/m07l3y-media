@@ -183,3 +183,8 @@
 .m07-guide.c{background:#14e0c4}
 .m07-guide-x{top:0;bottom:0;width:1px}
 .m07-guide-y{left:0;right:0;height:1px}
+/* Work page: logo drop spot (editor only) */
+.m07-editing .logo-slot:not(:has(.slot-media)){height:52px;border:1.5px dashed var(--teal);border-radius:12px;display:grid;place-items:center}
+.m07-editing .logo-slot:not(:has(.slot-media))::after{content:"Drop logo here";font:500 .62rem/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--teal)}
+.m07-editing .client .cl-name{min-height:0}
+.m07-editing .frame.cl-shot:not(:has(.slot-media))::after{content:"Drop photo / video";position:absolute;inset:0;display:grid;place-items:center;font:500 .6rem/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#fff;opacity:.8}

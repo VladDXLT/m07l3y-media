@@ -215,7 +215,7 @@
       entries.forEach(function (en) {
         var pl = en.target.__player;
         if (!pl) return;
-        if (en.isIntersecting) { if (!reduce) pl.play(); }
+        if (en.isIntersecting && !en.target.closest('.m07-park')) { if (!reduce) pl.play(); }
         else pl.pause();
       });
     }, { threshold: 0.15 }) : null;
@@ -282,6 +282,177 @@
     window.addEventListener('resize', fitAllStats);
     window.__m07FitStats = function (f) { if (f) fitStats(f); else fitAllStats(); };
   }
+
+  /* ---- Work page: client carousel (5 visible, center big) + a 3-up photo/video carousel inside each client ---- */
+  document.querySelectorAll('[data-carousel]').forEach(function (car) {
+    var stage = car.querySelector('.wc-stage');
+    var cards = Array.prototype.slice.call(stage.querySelectorAll(':scope > .client'));
+    if (!cards.length) return;
+    var KEY = 'm07-car-' + location.pathname;
+    var cur = 0;
+    if (window.__m07Editor) { try { cur = Math.min(cards.length - 1, +sessionStorage.getItem(KEY) || 0); } catch (e) {} }
+    var CPOS = ['m07-cn2', 'm07-cn1', 'm07-c0', 'm07-cp1', 'm07-cp2'];
+    function rel(i, c, n) { var d = ((i - c) % n + n) % n; if (d > n / 2) d -= n; return d; }
+    function setVids(scope, on) {
+      scope.querySelectorAll('video.slot-media').forEach(function (v) {
+        var pl = v.__player; if (!pl) return;
+        if (on && !reduce) pl.play(); else pl.pause();
+      });
+    }
+    function paintMedia(card) {
+      var shots = Array.prototype.slice.call(card.querySelectorAll('.cl-shot'));
+      var n = shots.length, c = card.__m || 0;
+      shots.forEach(function (s, i) {
+        var d = rel(i, c, n);
+        s.classList.remove('m07-s0', 'm07-sp1', 'm07-sn1', 'm07-soff', 'm07-park');
+        if (d === 0) s.classList.add('m07-s0');
+        else if (d === 1) s.classList.add('m07-sp1', 'm07-park');
+        else if (d === -1) s.classList.add('m07-sn1', 'm07-park');
+        else s.classList.add('m07-soff', 'm07-park');
+      });
+      var nav = card.querySelector('.cl-nav');
+      if (nav) nav.classList.toggle('m07-hide', n < 2);
+    }
+    function paint() {
+      var n = cards.length;
+      cards.forEach(function (card, i) {
+        var d = rel(i, cur, n);
+        CPOS.concat('m07-coff', 'm07-park').forEach(function (k) { card.classList.remove(k); });
+        card.classList.add(Math.abs(d) <= 2 ? CPOS[d + 2] : 'm07-coff');
+        if (d !== 0) card.classList.add('m07-park');
+        paintMedia(card);
+      });
+      cards.forEach(function (card, i) { if (i !== cur) setVids(card, false); });
+      setVids(cards[cur].querySelector('.m07-s0') || cards[cur], true);
+      var cnt = car.querySelector('.wc-count'); if (cnt) cnt.textContent = (cur + 1) + ' / ' + n;
+      if (window.__m07Editor) { try { sessionStorage.setItem(KEY, cur); } catch (e) {} }
+    }
+    function go(k) { cur = (k % cards.length + cards.length) % cards.length; paint(); }
+    function step(card, k) {
+      var n = card.querySelectorAll('.cl-shot').length; if (n < 2) return;
+      card.__m = (((card.__m || 0) + k) % n + n) % n;
+      paintMedia(card);
+      card.querySelectorAll('.cl-shot').forEach(function (s) { setVids(s, s.classList.contains('m07-s0')); });
+    }
+    car.addEventListener('click', function (e) {
+      if (e.target.closest('.wc-prev')) { go(cur - 1); return; }
+      if (e.target.closest('.wc-next')) { go(cur + 1); return; }
+      var card = e.target.closest('.client'); if (!card) return;
+      var i = cards.indexOf(card);
+      if (i !== cur) { e.preventDefault(); go(i); return; }
+      if (e.target.closest('.cl-prev')) step(card, -1);
+      else if (e.target.closest('.cl-next')) step(card, 1);
+    });
+    car.addEventListener('keydown', function (e) {
+      if (e.target.closest('[contenteditable]')) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(cur - 1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(cur + 1); }
+    });
+    // swipe: on a client's photos it flips the photos, anywhere else it flips clients
+    var sx = null, sy = 0, sTarget = null;
+    stage.addEventListener('pointerdown', function (e) { if (e.pointerType === 'mouse') return; sx = e.clientX; sy = e.clientY; sTarget = e.target; });
+    stage.addEventListener('pointerup', function (e) {
+      if (sx == null) return;
+      var dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+      if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+      var card = sTarget && sTarget.closest('.client');
+      if (card && cards.indexOf(card) === cur && sTarget.closest('.cl-track')) step(card, dx < 0 ? 1 : -1);
+      else go(cur + (dx < 0 ? 1 : -1));
+    });
+    // trackpad: two-finger swipe left/right flips clients (or the photos, when over the middle client's photos)
+    var wAcc = 0, wLast = 0, wStep = 0;
+    stage.addEventListener('wheel', function (e) {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      var now = Date.now();
+      if (now - wLast > 250) wAcc = 0;
+      wLast = now; wAcc += e.deltaX;
+      if (Math.abs(wAcc) < 90 || now - wStep < 260) return;
+      var dir = wAcc > 0 ? 1 : -1; wAcc = 0; wStep = now;
+      var card = e.target.closest && e.target.closest('.client');
+      if (card && cards.indexOf(card) === cur && e.target.closest('.cl-track')) step(card, dir);
+      else go(cur + dir);
+    }, { passive: false });
+    paint();
+    window.__m07Carousel = { go: function (i) { go(i); }, get index() { return cur; } };
+  });
+
+  /* ---- Client pages: big example carousel; each example takes the shape of its own video/photo ---- */
+  document.querySelectorAll('[data-excar]').forEach(function (car) {
+    var stage = car.querySelector('.ex-stage');
+    var KEY = 'm07-ex-' + location.pathname, cur = 0;
+    function shots() { return Array.prototype.slice.call(stage.querySelectorAll(':scope > .ex-shot')); }
+    if (window.__m07Editor) { try { cur = +sessionStorage.getItem(KEY) || 0; } catch (e) {} }
+    function rel(i, c, n) { var d = ((i - c) % n + n) % n; if (d > n / 2) d -= n; return d; }
+    function shape(f) {
+      var m = f.querySelector('video.slot-media:not(.pl-buf), img.slot-media');
+      if (!m) return;
+      var w = m.videoWidth || m.naturalWidth, h = m.videoHeight || m.naturalHeight;
+      if (w && h) { f.style.setProperty('--ex-ar', (w / h).toFixed(4)); return true; }
+      m.addEventListener(m.tagName === 'VIDEO' ? 'loadedmetadata' : 'load', function () { shape(f); paint(); }, { once: true });
+    }
+    function paint() {
+      var list = shots(), n = list.length; if (!n) return;
+      cur = ((cur % n) + n) % n;
+      var S = { 0: 1, 1: .74, 2: .54 }, GAP = .3;   // each side example tucks 30% of its width behind the one in front
+      var x = { 0: 0 }, wOf = function (i) { return list[i].offsetWidth; };
+      list.forEach(function (f, i) {
+        var d = rel(i, cur, n), a = Math.abs(d);
+        ['m07-e0', 'm07-e1', 'm07-e2', 'm07-eoff', 'm07-park'].forEach(function (k) { f.classList.remove(k); });
+        f.classList.add(a <= 2 ? 'm07-e' + a : 'm07-eoff');
+        if (d !== 0) f.classList.add('m07-park');
+      });
+      // place the sides next to the middle one using their real widths
+      [-1, 1].forEach(function (sgn) {
+        var prevEdge = wOf(cur) / 2, pos = 0;
+        for (var a = 1; a <= 2 && a <= (n - 1) / 2 + (sgn > 0 ? .5 : 0); a++) {
+          var i = ((cur + sgn * a) % n + n) % n, w = wOf(i) * S[a];
+          pos = prevEdge + w / 2 - w * GAP;
+          list[i].style.setProperty('--ex-x', (sgn * pos).toFixed(1) + 'px');
+          prevEdge = pos + w / 2;
+        }
+      });
+      list[cur].style.setProperty('--ex-x', '0px');
+      list.forEach(function (f, i) {
+        var on = i === cur;
+        f.querySelectorAll('video.slot-media').forEach(function (v) { var pl = v.__player; if (pl) { if (on && !reduce) pl.play(); else pl.pause(); } });
+      });
+      var cnt = car.querySelector('.wc-count'); if (cnt) cnt.textContent = (cur + 1) + ' / ' + n;
+      if (window.__m07Editor) { try { sessionStorage.setItem(KEY, cur); } catch (e) {} }
+    }
+    function go(k) { cur = k; paint(); }
+    shots().forEach(shape);
+    car.addEventListener('click', function (e) {
+      if (e.target.closest('.ex-prev')) { go(cur - 1); return; }
+      if (e.target.closest('.ex-next')) { go(cur + 1); return; }
+      var f = e.target.closest('.ex-shot'); if (!f) return;
+      var i = shots().indexOf(f);
+      if (i !== cur) { e.preventDefault(); e.stopPropagation(); go(i); }
+    }, true);
+    car.addEventListener('keydown', function (e) {
+      if (e.target.closest('[contenteditable]')) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(cur - 1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(cur + 1); }
+    });
+    var wAcc = 0, wLast = 0, wStep = 0;
+    stage.addEventListener('wheel', function (e) {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      var now = Date.now(); if (now - wLast > 250) wAcc = 0;
+      wLast = now; wAcc += e.deltaX;
+      if (Math.abs(wAcc) < 90 || now - wStep < 260) return;
+      go(cur + (wAcc > 0 ? 1 : -1)); wAcc = 0; wStep = now;
+    }, { passive: false });
+    var sx = null, sy = 0;
+    stage.addEventListener('pointerdown', function (e) { if (e.pointerType === 'mouse') return; sx = e.clientX; sy = e.clientY; });
+    stage.addEventListener('pointerup', function (e) {
+      if (sx == null) return; var dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(cur + (dx < 0 ? 1 : -1));
+    });
+    var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(paint, 150); });
+    paint();
+    window.__m07ExCarousel = { go: go, paint: function () { shots().forEach(shape); paint(); }, get index() { return cur; } };
+  });
 
   /* ---- Touch screens: play the hover effects as things scroll through the middle of the screen ---- */
   if (!reduce && window.matchMedia && matchMedia('(hover: none)').matches && 'IntersectionObserver' in window) {

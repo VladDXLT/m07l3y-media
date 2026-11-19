@@ -90,3 +90,12 @@ To change the destination, edit `data-email` and `data-endpoint` on the `<form i
 python3 -m http.server 8000
 ```
 Then open http://localhost:8000.
+
+## Work page (draft, hidden)
+`work.html` is a client carousel: 5 clients visible (center big), each with its own 3-up photo/video carousel.
+It is not linked in the menu, is `noindex`, and is blocked in robots.txt. To publish: add a Work link to the nav and remove the robots meta line.
+In the editor: hover a client's logo spot to Replace/drop a logo, **Remove BG** (makes a transparent PNG), **White** (white logo), **◀ Move / Move ▶**, **+ Client**, **Delete client**.
+Hover a photo/video spot for **Make main**, **+ Spot**, **Delete spot**. Click a client's name/type/tags to edit the text.
+
+## Visitor tracking
+`js/analytics.js`: paste a Google Analytics 4 ID (`G-...`) and a Microsoft Clarity project ID. Empty = off; never runs in the editor.

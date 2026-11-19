@@ -58,7 +58,7 @@
   }
   findBlocks(document.body);
   blocks.forEach(function (b) { b.classList.add('m07-block'); });
-  slots = Array.prototype.slice.call(document.querySelectorAll('.frame, .portrait'));
+  slots = Array.prototype.slice.call(document.querySelectorAll('.frame, .portrait, .logo-slot'));
   slots.forEach(function (s) { s.classList.add('m07-slot'); });
 
   /* ------------------------------------------------------------------ load the on-disk page and line it up */
@@ -148,7 +148,10 @@
 
   var handle = h('div', { class: 'm07-ui m07-handle', hidden: '', title: 'Drag to resize this text box' }, '<span></span>');
   var slotBar = h('div', { class: 'm07-ui m07-slotbar', hidden: '' },
-    '<span class="m07-slotinfo"></span><button type="button" data-slot="replace">Replace</button><button type="button" data-slot="add" title="Add another video that plays right after this one">+ Clip</button><button type="button" data-slot="pop" title="Remove the last clip">\u2212 Last clip</button><button type="button" data-slot="trim" title="Cut this video to the length you need">Trim</button><button type="button" data-slot="stats">Stats</button><button type="button" data-slot="hud">HUD</button><button type="button" data-slot="remove">Remove</button>');
+    '<span class="m07-slotinfo"></span><button type="button" data-slot="replace">Replace</button><button type="button" data-slot="add" title="Add another video that plays right after this one">+ Clip</button><button type="button" data-slot="pop" title="Remove the last clip">\u2212 Last clip</button><button type="button" data-slot="trim" title="Cut this video to the length you need">Trim</button><button type="button" data-slot="stats">Stats</button><button type="button" data-slot="hud">HUD</button><button type="button" data-slot="remove">Remove</button>' +
+    '<button type="button" data-slot="nobg" title="Make the logo background see-through (makes a new transparent PNG)">Remove BG</button><button type="button" data-slot="white" title="Show this logo in white (for dark logos on the black site)">White</button>' +
+    '<button type="button" data-slot="cl-left" title="Move this client one spot left">\u25C0 Move</button><button type="button" data-slot="cl-right" title="Move this client one spot right">Move \u25B6</button><button type="button" data-slot="cl-add" title="Add a new client card after this one">+ Client</button><button type="button" data-slot="cl-del" title="Delete this client card">Delete client</button>' +
+    '<button type="button" data-slot="main" title="Make this the first (main, centered) photo/video for this client">Make main</button><button type="button" data-slot="sl-add" title="Add another photo/video spot to this client">+ Spot</button><button type="button" data-slot="sl-del" title="Delete this photo/video spot">Delete spot</button>');
   var pill = h('button', { class: 'm07-ui m07-pill', type: 'button', hidden: '' }, '<i class="m07-dot"></i>Editor');
   var picker = h('input', { type: 'file', accept: 'image/*,video/*', hidden: '' });
   picker.className = 'm07-ui';
@@ -259,6 +262,19 @@
     var link = e.target.closest('a[href]');
     if (link && !link.closest('.logo, .foot-logo') && !(e.metaKey || e.ctrlKey)) e.preventDefault();
     if (e.target.closest('summary')) e.preventDefault();
+  }, true);
+  document.addEventListener('click', function (e) {
+    var add = editing && e.target.closest && e.target.closest('.ex-add');
+    if (!add) return;
+    e.preventDefault(); e.stopPropagation();
+    var stg = add.closest('[data-excar]') && add.closest('[data-excar]').querySelector('.ex-stage');
+    var last = stg && stg.querySelector(':scope > .ex-shot:last-of-type');
+    if (!stg) return;
+    setExIndex(stg.querySelectorAll(':scope > .ex-shot').length);
+    fileOp('Added an example', [last || stg], function (doc, refs) {
+      var t = doc.createElement('template'); t.innerHTML = '<div class="frame ex-shot"></div>';
+      if (last) refs[0].after(t.content.firstElementChild); else refs[0].appendChild(t.content.firstElementChild);
+    }, { layout: false });
   }, true);
   document.addEventListener('submit', function (e) { if (editing && !e.target.closest('.m07-ui')) { e.preventDefault(); e.stopImmediatePropagation(); status('Forms are off while editing.'); } }, true);
 
@@ -491,7 +507,24 @@
     });
     return Object.keys(ex.parts).length ? ex : null;
   }
+  // One standard look everywhere: likes / comments / shares stacked on the right, same size and lined up,
+  // views bottom-left (move them in Layout mode if you want, but new stats always start like this)
   function applyStatLayout(slot) {
+    var round = shapeOf(slot) === 'circle';
+    slot.querySelectorAll('.stat-pill.sp-on').forEach(function (n) { n.remove(); });
+    var ov = slot.querySelector('div.stat-overlay'), vb = slot.querySelector('.views-badge');
+    if (ov) {
+      if (!ov.querySelector('.stat-pill')) { ov.remove(); ov = null; }
+      else {
+        ov.setAttribute('data-lay', 'std'); ov.setAttribute('data-ref', '236');
+        ov.setAttribute('style', round ? '--m-x: -9cqw;' : '--m-x: 2.5cqw; --m-y: 25cqh;');
+        ov.querySelectorAll('.stat-pill').forEach(function (n) { n.setAttribute('style', '--m-s: 0.62;'); });
+      }
+    }
+    if (vb) { vb.setAttribute('data-ref', '236'); if (round) vb.setAttribute('style', '--m-x: 32cqw; --m-y: -5cqh;'); else vb.removeAttribute('style'); }
+    if (window.__m07FitStats) window.__m07FitStats(slot);
+  }
+  function applyStatLayoutLearned(slot) {
     var list = (STAT_TPL[shapeOf(slot)] || []).filter(function (e) { return e && e.parts; });
     if (!list.length) return;
     var W = slot.offsetWidth || 1, H = slot.offsetHeight || 1, best = null, bd = Infinity;
@@ -561,7 +594,7 @@
       ov.setAttribute('role', 'img'); ov.setAttribute('aria-label', alt || '');
       ov.innerHTML = keys.map(function (k) {
         return '<span class="stat-pill sp-' + k + '" data-k="' + k + '"' + (keep[k] ? ' style="' + esc(keep[k]) + '"' : '') + '>' + PILL_ICONS[k] + '<b>' + fmtCount(data[k]) + '</b></span>';
-      }).join('') + (data.platform ? '<span class="stat-pill sp-on" data-k="on"' + (keep.on ? ' style="' + esc(keep.on) + '"' : '') + '>on ' + esc(data.platform) + '</span>' : '');
+      }).join('');
       if (keep.overlay) ov.setAttribute('style', keep.overlay);
       if (ref) ov.setAttribute('data-ref', ref);
       slot.insertBefore(ov, before);
@@ -576,6 +609,8 @@
     if (window.__m07FitStats) window.__m07FitStats(slot);
   }
   function placeMedia(slot, src) {
+    var isLogo = slot.matches('.logo-slot');
+    if (isLogo && isVideo(src)) { status('Logos have to be an image (png, jpg, svg, webp).', 'err'); return; }
     if (!slot.__orig) slot.__orig = slot.innerHTML;
     var info = library[src] && library[src].meta || null;
     var media;
@@ -597,9 +632,17 @@
     if (oldV && oldV.getAttribute('data-sound-style')) media.setAttribute('data-sound-style', oldV.getAttribute('data-sound-style'));
     if (media.tagName === 'VIDEO') keepSoundStyle(slot, media);
     Array.prototype.slice.call(slot.children).forEach(function (c) {
-      if (!c.classList.contains('hud') && !c.classList.contains('m07-ui')) c.remove();
+      if (!c.classList.contains('hud') && !c.classList.contains('m07-ui') && !c.classList.contains('cl-name')) c.remove();
     });
     slot.insertBefore(media, slot.firstChild);
+    if (isLogo) {
+      var cn = slot.closest('.client') && slot.closest('.client').querySelector('.cl-name');
+      media.setAttribute('alt', ((cn && cn.textContent.trim()) || 'Client') + ' logo');
+      media.removeAttribute('loading');
+      markDirty(slot, 'html');
+      status('Logo placed. Background not see-through? Click "Remove BG". Dark logo? Click "White". Save to keep it.', 'warn');
+      return;
+    }
     if (info) {
       var vtxt = info.stats && info.stats.views != null ? fmtCount(info.stats.views) : '';
       var sd = statsData(info), hasSd = Object.keys(sd).some(function (k) { return k !== 'platform'; });
@@ -618,6 +661,7 @@
     if (media.tagName === 'VIDEO' && window.__m07SetupVideo) window.__m07SetupVideo(media);
     else if (media.play) { var p = media.play(); if (p && p.catch) p.catch(function () {}); }
     markDirty(slot, 'html');
+    if (window.__m07ExCarousel && slot.matches('.ex-shot')) { slot.style.removeProperty('--ex-ar'); window.__m07ExCarousel.paint(); }
     status('Placed ' + src.split('/').pop() + '. Save to keep it. To play more clips after it, click + Clip.', 'warn');
   }
   // Add another clip to a frame: the clips play one after another with no gap (js/main.js)
@@ -669,6 +713,15 @@
     sb.classList.toggle('on', !!slot.querySelector('.stat-overlay, .views-badge'));
     var vv = slot.querySelector('video.slot-media:not(.pl-buf)'), n = vv ? clipList(vv).length : 0;
     slotBar.querySelector('[data-slot="add"]').classList.toggle('on', addTo === slot);
+    var isLogo = slot.matches('.logo-slot'), isShot = slot.matches('.cl-shot, .ex-shot'), lg = isLogo && slot.querySelector('img.slot-media');
+    slotBar.querySelector('[data-slot="add"]').hidden = isLogo;
+    slotBar.querySelector('[data-slot="nobg"]').hidden = !lg;
+    slotBar.querySelector('[data-slot="white"]').hidden = !lg;
+    if (lg) slotBar.querySelector('[data-slot="white"]').classList.toggle('on', lg.classList.contains('logo-white'));
+    ['cl-left', 'cl-right', 'cl-add', 'cl-del'].forEach(function (k) { slotBar.querySelector('[data-slot="' + k + '"]').hidden = !isLogo || !slot.closest('.client'); });
+    ['main', 'sl-add', 'sl-del'].forEach(function (k) { slotBar.querySelector('[data-slot="' + k + '"]').hidden = !isShot; });
+    if (isShot) slotBar.querySelector('[data-slot="main"]').hidden = !slot.previousElementSibling;
+    if (isShot) { slotBar.querySelector('[data-slot="sl-add"]').textContent = slot.matches('.ex-shot') ? '+ Example' : '+ Spot'; slotBar.querySelector('[data-slot="sl-del"]').textContent = slot.matches('.ex-shot') ? 'Delete example' : 'Delete spot'; }
     slotBar.querySelector('[data-slot="pop"]').hidden = n < 2;
     slotBar.querySelector('[data-slot="trim"]').hidden = n < 1;
     slotBar.querySelector('.m07-slotinfo').textContent = frameShape(slot) + (n > 1 ? ' \u00b7 ' + n + ' clips' : '');
@@ -712,6 +765,9 @@
       if (pv) { var pl = clipList(pv); pl.pop(); if (pl.length) setClips(slot, pv, pl); status(pl.length + ' clip' + (pl.length > 1 ? 's' : '') + ' left. Save to keep it.', 'warn'); }
     }
     if (b.dataset.slot === 'hud') { slot.classList.toggle('no-hud'); markDirty(slot, 'class'); }
+    if (b.dataset.slot === 'nobg') removeBg(slot);
+    if (b.dataset.slot === 'white') { var wl = slot.querySelector('img.slot-media'); if (wl) { wl.classList.toggle('logo-white'); markDirty(slot, 'html'); showSlotBar(slot); } }
+    if (/^(cl-|sl-|main$)/.test(b.dataset.slot)) carouselOp(b.dataset.slot, slot, b);
     if (b.dataset.slot === 'stats') {
       var ov = slot.querySelector('.stat-overlay, .views-badge'), sm = slot.querySelector('.slot-media[data-stats]');
       if (ov) removeStats(slot); else if (sm) { addStats(slot, readStats(sm), sm.getAttribute('data-stats-alt'), sm.getAttribute('data-views')); applyStatLayout(slot); }
@@ -1537,7 +1593,7 @@
   }
 
   /* ---- structural changes: applied to the page file, saved, then the page reloads */
-  function fileOp(label, els, fn) {
+  function fileOp(label, els, fn, opts) {
     if (!ready) { status('Still loading, try again in a second.', 'warn'); return; }
     if (saving) return;
     if (histTimer) commitHist();
@@ -1558,7 +1614,7 @@
         saving = false;
         if (!d.ok) throw new Error(d.error || 'Save failed');
         pushHist({ html: curHtml, label: label }); redoStack = []; storeStacks();
-        writeSession('after', JSON.stringify({ page: PAGE, y: window.scrollY, sel: selIdx, layout: true, msg: label + '. Saved. Undo (Cmd+Z) puts it back.' }));
+        writeSession('after', JSON.stringify({ page: PAGE, y: window.scrollY, sel: selIdx, layout: !(opts && opts.layout === false), msg: label + '. Saved. Undo (Cmd+Z) puts it back.' }));
         savedCount = changeCount;
         location.reload();
       })
@@ -1702,6 +1758,127 @@
     for (var i = 0; i < LIVE.length; i++) if (want.indexOf(LIVE[i].__pid) > -1) found.push(LIVE[i]);
     sel = found; paintSel();
     status(a.msg);
+  }
+
+  /* ------------------------------------------------------------------ Work page carousel: clients + photo/video spots */
+  var EMPTY_SHOT = '<div class="frame cl-shot"></div>';
+  function newClientHtml() {
+    var L = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>', R = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+    return '<article class="client">\n        <div class="logo-slot"></div>\n        <h3 class="cl-name">New client</h3>\n' +
+      '        <p class="cl-kind"><span class="mono">Business</span></p>\n        <div class="cl-tags"><span>Service</span></div>\n' +
+      '        <div class="cl-media">\n          <div class="cl-track">\n            ' + EMPTY_SHOT + '\n            ' + EMPTY_SHOT + '\n            ' + EMPTY_SHOT + '\n          </div>\n' +
+      '          <div class="cl-nav">\n            <button type="button" class="cl-prev" aria-label="Previous photo or video">' + L + '</button>\n            <button type="button" class="cl-next" aria-label="Next photo or video">' + R + '</button>\n          </div>\n        </div>\n      </article>';
+  }
+  function setCarIndex(i) { try { sessionStorage.setItem('m07-car-' + location.pathname, String(i)); } catch (e) {} }
+  function setExIndex(i) { try { sessionStorage.setItem('m07-ex-' + location.pathname, String(i)); } catch (e) {} }
+  function carouselOp(kind, slot, btn) {
+    var ex = slot.closest('.ex-shot');
+    if (ex) {
+      var exs = Array.prototype.slice.call(ex.parentElement.querySelectorAll(':scope > .ex-shot')), ei = exs.indexOf(ex);
+      if (kind === 'sl-del' && btn.dataset.sure !== '1') {
+        btn.dataset.sure = '1'; var w0 = btn.textContent; btn.textContent = 'Sure? Delete';
+        setTimeout(function () { btn.dataset.sure = ''; btn.textContent = w0; }, 3000); return;
+      }
+      if (kind === 'main') { setExIndex(0); fileOp('Made it the main example', [ex], function (doc, refs) { refs[0].parentElement.prepend(refs[0]); }, { layout: false }); }
+      if (kind === 'sl-add') { setExIndex(ei + 1); fileOp('Added an example', [ex], function (doc, refs) { var t = doc.createElement('template'); t.innerHTML = '<div class="frame ex-shot"></div>'; refs[0].after(t.content.firstElementChild); }, { layout: false }); }
+      if (kind === 'sl-del') {
+        if (exs.length < 2) { status('Keep at least one example. Use Remove to empty it.', 'warn'); return; }
+        setExIndex(Math.max(0, ei - 1)); fileOp('Deleted an example', [ex], function (doc, refs) { refs[0].remove(); }, { layout: false });
+      }
+      return;
+    }
+    var card = slot.closest('.client');
+    if (!card) return;
+    var cards = Array.prototype.slice.call(card.parentElement.querySelectorAll(':scope > .client'));
+    var nm = card.querySelector('.cl-name'), ci = cards.indexOf(card), name = nm ? nm.textContent.trim() : 'client';
+    if ((kind === 'cl-del' || kind === 'sl-del') && btn.dataset.sure !== '1') {
+      btn.dataset.sure = '1'; var was = btn.textContent; btn.textContent = 'Sure? Delete';
+      setTimeout(function () { btn.dataset.sure = ''; btn.textContent = was; }, 3000);
+      return;
+    }
+    var stay = { layout: false };
+    if (kind === 'cl-left' || kind === 'cl-right') {
+      var other = kind === 'cl-left' ? card.previousElementSibling : card.nextElementSibling;
+      if (!other || !other.matches('.client')) { status('It\u2019s already at the ' + (kind === 'cl-left' ? 'start' : 'end') + '.', 'warn'); return; }
+      setCarIndex(ci + (kind === 'cl-left' ? -1 : 1));
+      fileOp('Moved ' + name, [card, other], function (doc, refs) {
+        if (kind === 'cl-left') refs[1].before(refs[0]); else refs[1].after(refs[0]);
+      }, stay);
+    }
+    if (kind === 'cl-add') {
+      setCarIndex(ci + 1);
+      fileOp('Added a client', [card], function (doc, refs) {
+        var t = doc.createElement('template'); t.innerHTML = newClientHtml();
+        refs[0].after(t.content.firstElementChild);
+      }, stay);
+    }
+    if (kind === 'cl-del') {
+      if (cards.length < 2) { status('Keep at least one client.', 'warn'); return; }
+      setCarIndex(Math.max(0, ci - 1));
+      fileOp('Deleted ' + name, [card], function (doc, refs) { refs[0].remove(); }, stay);
+    }
+    var shot = slot.closest('.cl-shot');
+    if (!shot) return;
+    var shots = Array.prototype.slice.call(shot.parentElement.querySelectorAll(':scope > .cl-shot'));
+    setCarIndex(ci);
+    if (kind === 'main') fileOp('Made it the main one', [shot], function (doc, refs) { refs[0].parentElement.prepend(refs[0]); }, stay);
+    if (kind === 'sl-add') fileOp('Added a photo/video spot', [shot], function (doc, refs) {
+      var t = doc.createElement('template'); t.innerHTML = EMPTY_SHOT; refs[0].parentElement.appendChild(t.content.firstElementChild);
+    }, stay);
+    if (kind === 'sl-del') {
+      if (shots.length < 2) { status('Keep at least one spot. Use Remove to empty it.', 'warn'); return; }
+      fileOp('Deleted a photo/video spot', [shot], function (doc, refs) { refs[0].remove(); }, stay);
+    }
+  }
+  // Remove a logo's background: the color around the edges turns see-through (soft edges kept), saved as a new PNG
+  function removeBg(slot) {
+    var img = slot.querySelector('img.slot-media');
+    if (!img) return;
+    status('Removing the background\u2026');
+    var im = new Image();
+    im.onload = function () {
+      var w = im.naturalWidth, hgt = im.naturalHeight;
+      if (!w || !hgt) { status('Could not read that image.', 'err'); return; }
+      var k = Math.min(1, 1600 / Math.max(w, hgt)); w = Math.round(w * k); hgt = Math.round(hgt * k);
+      var c = document.createElement('canvas'); c.width = w; c.height = hgt;
+      var x = c.getContext('2d'); x.drawImage(im, 0, 0, w, hgt);
+      var d = x.getImageData(0, 0, w, hgt), p = d.data, counts = {}, best = null;
+      function sample(px, py) {
+        var i = (py * w + px) * 4; if (p[i + 3] < 200) return;
+        var key = (p[i] >> 4) + ',' + (p[i + 1] >> 4) + ',' + (p[i + 2] >> 4);
+        var e = counts[key] || (counts[key] = { n: 0, r: 0, g: 0, b: 0 });
+        e.n++; e.r += p[i]; e.g += p[i + 1]; e.b += p[i + 2];
+        if (!best || e.n > best.n) best = e;
+      }
+      var sx = Math.max(1, Math.floor(w / 80)), sy = Math.max(1, Math.floor(hgt / 80));
+      for (var a = 0; a < w; a += sx) { sample(a, 0); sample(a, hgt - 1); }
+      for (var bq = 0; bq < hgt; bq += sy) { sample(0, bq); sample(w - 1, bq); }
+      if (!best) { status('This logo already has a see-through background.', 'warn'); return; }
+      var br = best.r / best.n, bg = best.g / best.n, bb = best.b / best.n, T0 = 22, T1 = 85;
+      for (var i = 0; i < p.length; i += 4) {
+        var dist = Math.max(Math.abs(p[i] - br), Math.abs(p[i + 1] - bg), Math.abs(p[i + 2] - bb));
+        if (dist >= T1) continue;
+        if (dist <= T0) { p[i + 3] = 0; continue; }
+        var al = (dist - T0) / (T1 - T0);
+        p[i] = Math.max(0, Math.min(255, (p[i] - br * (1 - al)) / al));
+        p[i + 1] = Math.max(0, Math.min(255, (p[i + 1] - bg * (1 - al)) / al));
+        p[i + 2] = Math.max(0, Math.min(255, (p[i + 2] - bb * (1 - al)) / al));
+        p[i + 3] = Math.round(p[i + 3] * al);
+      }
+      x.putImageData(d, 0, 0);
+      var base = (img.getAttribute('src') || 'logo').split('/').pop().replace(/\.[^.]+$/, '').replace(/-transparent$/, '');
+      c.toBlob(function (blob) {
+        if (!blob) { status('Could not make the PNG.', 'err'); return; }
+        upload(new File([blob], base + '-transparent.png', { type: 'image/png' })).then(function (r) {
+          if (!r) return;
+          img.setAttribute('src', r.src);
+          markDirty(slot, 'html'); showSlotBar(slot);
+          status('Background removed (' + r.name + '). Not right? Undo (Cmd+Z). Save to keep it.', 'warn');
+        });
+      }, 'image/png');
+    };
+    im.onerror = function () { status('Could not read that image.', 'err'); };
+    im.src = img.getAttribute('src');
   }
 
   /* ------------------------------------------------------------------ TRIM: cut a video to any length
@@ -1974,10 +2151,10 @@
   }, true);
 
   /* ------------------------------------------------------------------ save */
-  function noRuntimeStyle(st) { return (st || '').replace(/(^|;)\s*--stat-k\s*:[^;]*;?/g, '$1').trim(); }
+  function noRuntimeStyle(st) { return (st || '').replace(/(^|;)\s*--(stat-k|ex-ar|ex-x)\s*:[^;]*;?/g, '$1').trim(); }
   function cleanInner(el) {
     var c = el.cloneNode(true);
-    c.querySelectorAll('[style*="--stat-k"]').forEach(function (n) { var st = noRuntimeStyle(n.getAttribute('style')); if (st) n.setAttribute('style', st); else n.removeAttribute('style'); });
+    c.querySelectorAll('[style*="--stat-k"], [style*="--ex-"]').forEach(function (n) { var st = noRuntimeStyle(n.getAttribute('style')); if (st) n.setAttribute('style', st); else n.removeAttribute('style'); });
     // the sound button is made by the site's script: keep its Layout changes on the video instead
     c.querySelectorAll('.sound-btn').forEach(function (b) {
       var v = b.parentElement && b.parentElement.querySelector('video.slot-media:not(.pl-buf)');
@@ -1993,6 +2170,7 @@
       v.removeAttribute('loop');
     });
     c.querySelectorAll('.tc').forEach(function (n) { n.textContent = '00:00:00:00'; });
+    c.querySelectorAll('.wc-count').forEach(function (n) { n.textContent = ''; });
     c.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
     c.querySelectorAll('[class]').forEach(function (n) {
       var keep = n.className.split(/\s+/).filter(function (t) { return t && !/^m07-/.test(t) && t !== 'pre' && t !== 'is-hidden' && t !== 'pl-hide'; });
@@ -2040,7 +2218,7 @@
         if (!d.ok) throw new Error(d.error || 'Save failed');
         savedCount = countAtSave;
         refreshStatus();
-        learnStatLayouts();
+        // (stat layouts are now one fixed standard; no learning from saved pages)
         if (changeCount === savedCount) {
           var t = new Date();
           status('Saved to ' + PAGE + ' at ' + t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
